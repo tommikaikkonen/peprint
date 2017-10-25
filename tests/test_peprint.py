@@ -243,6 +243,52 @@ def nested_dictionaries():
     return st.recursive(simple_text, extend, max_leaves=50)
 
 
+def test_top_level_str():
+    """Tests that top level strings are not indented or surrounded with parentheses"""
+
+    pprint('ab' * 50)
+    expected = (
+        "'ababababababababababababababababababababababababababababababababababa'"
+        "\n'bababababababababababababababab'"
+    )
+    assert pformat('ab' * 50) == expected
+
+
+def test_second_level_str():
+    """Test that second level strs are indented"""
+    pprint({'ab' * 50: 'cd' * 100})
+    expected = """\
+[
+    'ababababababababababababababababababababababababababababababababababa'
+        'bababababababababababababababab'
+]"""
+    assert pformat(['ab' * 50]) == expected
+
+
+def test_many_cases():
+    # top-level multiline str.
+    pprint('abcd' * 40)
+
+    # sequence with multiline strs.
+    pprint(['abcd' * 40] * 5)
+
+    # nested dict
+    pprint({
+        'ab' * 40: 'cd' * 50
+    })
+
+    # long urls.
+    pprint([
+        'https://www.example.com/User/john/files/Projects/peprint/images/original/image0001.jpg'
+            '?q=verylongquerystring&maxsize=1500&signature=af429fkven2aA'
+            '#content1-header-something-something'
+    ] * 5)
+    nativepprint([
+        'https://www.example.com/User/john/files/Projects/peprint/images/original/image0001.jpg'
+            '?q=verylongquerystring&maxsize=1500&signature=af429fkven2aA'
+            '#content1-header-something-something'
+    ] * 5)
+
 @given(nested_dictionaries())
 def test_nested_structures(value):
     pprint(value)

@@ -11,6 +11,7 @@ from .api import (
     nest,
     always_break,
     group,
+    hang,
     LINE,
     SOFTLINE,
     HARDLINE
@@ -59,7 +60,12 @@ def pretty_bracketable_iterable(value, indent, depth_left=None):
     sep = concat([',', LINE])
     els = (
         (
-            pretty_str(el, indent=indent, depth_left=depth_left - 1, parentheses=True)
+            pretty_str(
+                el,
+                indent=indent,
+                depth_left=depth_left - 1,
+                multiline_strategy=MULTILINE_STATEGY_HANG,
+            )
             if isinstance(el, (str, bytes))
             else pretty_python_value(el, indent=indent, depth_left=depth_left - 1)
         )
@@ -112,8 +118,7 @@ def pretty_dict(d, indent, depth_left):
                 k,
                 indent=indent,
                 depth_left=depth_left - 1,
-                parentheses=True,
-                requires_further_indent=True,
+                multiline_strategy=MULTILINE_STATEGY_PARENS
             )
         else:
             kdoc = pretty_python_value(
@@ -122,11 +127,19 @@ def pretty_dict(d, indent, depth_left):
                 depth_left=depth_left - 1
             )
 
-        vdoc = pretty_python_value(
-            v,
-            indent=indent,
-            depth_left=depth_left - 1,
-        )
+        if isinstance(v, (str, bytes)):
+            vdoc = pretty_str(
+                v,
+                indent=indent,
+                depth_left=depth_left - 1,
+                multiline_strategy=MULTILINE_STATEGY_INDENTED
+            )
+        else:
+            vdoc = pretty_python_value(
+                v,
+                indent=indent,
+                depth_left=depth_left - 1,
+            )
         pairs.append((kdoc, vdoc))
 
     pairsep = concat([',', LINE])
@@ -272,15 +285,37 @@ def escaped_len(s, quote_type):
 MAX_ESCAPE_LEN = len('\\U123456789')
 
 
+WHITESPACE_PATTERN_TEXT = re.compile(r'(\s+)')
+WHITESPACE_PATTERN_BYTES = re.compile(rb'(\s+)')
+
+NONWORD_PATTERN_TEXT = re.compile(r'(\W+)')
+NONWORD_PATTERN_BYTES = re.compile(rb'(\W+)')
+
+
+def str_to_breakable_parts(s):
+    whitespace_pattern = r''
+
+
 def str_to_lines(max_len, quote_type, s):
     if isinstance(s, str):
+        whitespace_pattern = WHITESPACE_PATTERN_TEXT
+        nonword_pattern = NONWORD_PATTERN_TEXT
         empty = ''
-        alternating_words_ws = re.split(r'(\s+)', s)
-        starts_with_whitespace = re.match(r'\s+', alternating_words_ws[0])
     else:
+        assert isinstance(s, bytes)
+        whitespace_pattern = WHITESPACE_PATTERN_BYTES
+        nonword_pattern = NONWORD_PATTERN_BYTES
         empty = b''
-        alternating_words_ws = re.split(rb'(\s+)', s)
-        starts_with_whitespace = re.match(rb'\s+', alternating_words_ws[0])
+
+
+    alternating_words_ws = whitespace_pattern.split(s)
+
+    if len(alternating_words_ws) <= 1:
+        # no whitespace: try splitting with nonword pattern.
+        alternating_words_ws = nonword_pattern.split(s)
+        starts_with_whitespace = nonword_pattern.match(alternating_words_ws[0])
+    else:
+        starts_with_whitespace = whitespace_pattern.match(alternating_words_ws[0])
 
     tagged_alternating = (
         list(zip(alternating_words_ws, cycle([True, False])))
@@ -340,12 +375,43 @@ def str_to_lines(max_len, quote_type, s):
         yield empty.join(curr_line_parts)
 
 
+
+# For dict keys
+"""
+(
+    'aaaaaaaaaa'
+    'aaaaaa'
+)
+"""
+MULTILINE_STATEGY_PARENS = 'MULTILINE_STATEGY_PARENS'
+
+# For dict values
+"""
+    'aaaaaaaaaa'
+    'aaaaa'
+"""
+MULTILINE_STATEGY_INDENTED = 'MULTILINE_STATEGY_INDENTED'
+
+# For sequence elements
+"""
+'aaaaaaaaa'
+    'aaaaaa'
+"""
+MULTILINE_STATEGY_HANG = 'MULTILINE_STATEGY_HANG'
+
+# For top level strs
+"""
+'aaaaaaaaa'
+'aaaaaa'
+"""
+MULTILINE_STATEGY_PLAIN = 'MULTILINE_STATEGY_PLAIN'
+
+
 def pretty_str(
     s,
     indent,
     depth_left,
-    parentheses=False,
-    requires_further_indent=True,
+    multiline_strategy=MULTILINE_STATEGY_PLAIN,
 ):
     strtype = (
         str
@@ -354,11 +420,6 @@ def pretty_str(
     )
 
     peprint_indent = indent
-
-    if parentheses:
-        left_paren, right_paren = '(', ')'
-    else:
-        left_paren, right_paren = '', ''
 
     def evaluator(indent, column, page_width, ribbon_width):
         columns_left_in_line = page_width - column
@@ -410,7 +471,22 @@ def pretty_str(
             )
         )
 
-        if parentheses:
+        if multiline_strategy == MULTILINE_STATEGY_PLAIN:
+            return always_break(concat(parts))
+        elif multiline_strategy == MULTILINE_STATEGY_HANG:
+            return always_break(
+                nest(
+                    peprint_indent,
+                    concat(parts)
+                )
+            )
+        else:
+            if multiline_strategy == MULTILINE_STATEGY_PARENS:
+                left_paren, right_paren = '(', ')'
+            else:
+                assert multiline_strategy == MULTILINE_STATEGY_INDENTED
+                left_paren, right_paren = '', ''
+
             return always_break(
                 concat([
                     left_paren,
@@ -425,20 +501,6 @@ def pretty_str(
                     right_paren
                 ])
             )
-
-        return always_break(
-            nest(
-                (
-                    peprint_indent
-                    if requires_further_indent
-                    else 0
-                ),
-                concat([
-                    HARDLINE,
-                    *parts
-                ])
-            ),
-        )
 
     return contextual(evaluator)
 
