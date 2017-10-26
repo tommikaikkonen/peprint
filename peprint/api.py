@@ -16,7 +16,7 @@ from .doc import (
 from .utils import intersperse
 
 
-def text(x, meta=None):
+def text(x, *, meta=None):
     if meta is None:
         return x
     return Text(x, meta=meta)
@@ -33,11 +33,11 @@ def cast_doc(doc):
     raise ValueError(doc)
 
 
-def group(x, meta=None):
+def group(x, *, meta=None):
     return Group(x, meta=meta)
 
 
-def concat(xs, meta=None):
+def concat(xs, *, meta=None):
     xs = list(xs)
     if not xs:
         return NIL
@@ -46,43 +46,43 @@ def concat(xs, meta=None):
     return Concat([cast_doc(x) for x in xs], meta=meta)
 
 
-def contextual(fn, meta=None):
+def contextual(fn, *, meta=None):
     return Contextual(fn, meta=meta)
 
 
-def align(doc):
+def align(doc, *, meta=None):
     def evaluator(indent, column, page_width, ribbon_width):
         return Nest(column - indent, doc)
-    return contextual(evaluator)
+    return contextual(evaluator, meta=meta)
 
 
-def hang(i, doc):
-    return align(Nest(i, doc))
+def hang(i, doc, *, meta=None):
+    return align(Nest(i, doc), meta=meta)
 
 
-def nest(i, doc):
-    return Nest(i, doc)
+def nest(i, doc, *, meta=None):
+    return Nest(i, doc, meta=meta)
 
 
-def hsep(docs):
-    return concat(intersperse(' ', docs))
+def hsep(docs, *, meta=None):
+    return concat(intersperse(' ', docs), meta=meta)
 
 
-def vsep(docs):
-    return concat(intersperse(LINE, docs))
+def vsep(docs, *, meta=None):
+    return concat(intersperse(LINE, docs), meta=meta)
 
 
-def fillsep(docs, meta=None):
+def fillsep(docs, *, meta=None):
     return Fill(intersperse(LINE, map(cast_doc, docs)), meta=meta)
 
 
-def fill(docs, meta=None):
+def fill(docs, *, meta=None):
     return Fill(docs, meta=meta)
 
 
-def always_break(doc, meta=None):
+def always_break(doc, *, meta=None):
     return AlwaysBreak(doc, meta=meta)
 
 
-def flat_choice(when_broken, when_flat, meta=None):
+def flat_choice(when_broken, when_flat, *, meta=None):
     return FlatChoice(when_broken, when_flat, meta=meta)
