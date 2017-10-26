@@ -1,9 +1,9 @@
-from collections import namedtuple
-from itertools import cycle
-from io import StringIO
+import enum
 import math
 import re
 import sys
+from io import StringIO
+from itertools import cycle
 
 from .api import (
     concat,
@@ -11,11 +11,11 @@ from .api import (
     nest,
     always_break,
     group,
-    hang,
     LINE,
     SOFTLINE,
     HARDLINE
 )
+
 from .layout import layout_smart
 from .render import default_render_to_stream
 
@@ -171,106 +171,123 @@ NEG_INF_FLOAT = float('-inf')
 
 
 def pretty_float(value, indent, depth_left):
+    if depth_left == 0:
+        return 'float(...)'
+
     if value == INF_FLOAT:
         return "float('inf')"
     elif value == NEG_INF_FLOAT:
         return "float('-inf')"
     elif math.isnan(value):
         return "float('nan')"
+
     return repr(value)
 
 
-SINGLE_QUOTE = "'"
-DOUBLE_QUOTE = '"'
+SINGLE_QUOTE_TEXT = "'"
+SINGLE_QUOTE_BYTES = b"'"
+
+DOUBLE_QUOTE_TEXT = '"'
+DOUBLE_QUOTE_BYTES = b'"'
 
 
-StringRenderingApproach = namedtuple(
-    'StringRenderingApproach',
-    'quote_type, needs_escaping'
-)
+class QuoteStrategy(enum.Enum):
+    SINGLE = SINGLE_QUOTE_TEXT
+    DOUBLE = DOUBLE_QUOTE_TEXT
+
+    @property
+    def bytes_quote(self):
+        if self.value == SINGLE_QUOTE_TEXT:
+            return SINGLE_QUOTE_BYTES
+        return DOUBLE_QUOTE_BYTES
+
+    @property
+    def text_quote(self):
+        return self.value
 
 
-def needs_escaping_for_quote(quote_type, s):
-    return quote_type in s
-
-
-def determine_string_rendering_approach(s):
+def determine_quote_strategy(s):
     if isinstance(s, str):
-        contains_single = SINGLE_QUOTE in s
-        contains_double = DOUBLE_QUOTE in s
+        single_quote = SINGLE_QUOTE_TEXT
+        double_quote = DOUBLE_QUOTE_TEXT
     else:
-        contains_single = SINGLE_QUOTE.encode('ascii') in s
-        contains_double = DOUBLE_QUOTE.encode('ascii') in s
+        single_quote = SINGLE_QUOTE_BYTES
+        double_quote = DOUBLE_QUOTE_BYTES
+
+    contains_single = single_quote in s
+    contains_double = double_quote in s
 
     if not contains_single:
-        return StringRenderingApproach(SINGLE_QUOTE, needs_escaping=False)
+        return QuoteStrategy.SINGLE
 
     if not contains_double:
-        return StringRenderingApproach(DOUBLE_QUOTE, needs_escaping=False)
+        return QuoteStrategy.DOUBLE
 
     assert contains_single and contains_double
 
-    if isinstance(s, str):
-        single_count = s.count(SINGLE_QUOTE)
-        double_count = s.count(DOUBLE_QUOTE)
-    else:
-        single_count = s.count(SINGLE_QUOTE.encode('ascii'))
-        double_count = s.count(DOUBLE_QUOTE.encode('ascii'))
+    single_count = s.count(single_quote)
+    double_count = s.count(double_quote)
 
     if single_count <= double_count:
-        return StringRenderingApproach(SINGLE_QUOTE, needs_escaping=True)
+        return QuoteStrategy.SINGLE
 
-    return StringRenderingApproach(DOUBLE_QUOTE, needs_escaping=True)
+    return QuoteStrategy.DOUBLE
 
 
-def escape_str_for_quote(quote, s):
-    assert quote in (SINGLE_QUOTE, DOUBLE_QUOTE)
+def escape_str_for_quote(quote_strategy, s):
+    if not isinstance(quote_strategy, QuoteStrategy):
+        raise ValueError(f'Expected QuoteStrategy, got {quote_strategy}')
 
     escaped_with_quotes = repr(s)
     repr_used_quote = escaped_with_quotes[-1]
+
     # string may have a prefix
     first_quote_at_index = escaped_with_quotes.find(repr_used_quote)
     repr_escaped = escaped_with_quotes[first_quote_at_index + 1:-1]
 
-    if repr_used_quote == quote:
+    if repr_used_quote == quote_strategy.text_quote:
         # repr produced the quotes we wanted -
         # escaping is correct.
         return repr_escaped
 
     # repr produced different quotes, which escapes
     # alternate quotes.
-    if quote == SINGLE_QUOTE:
+    if quote_strategy == QuoteStrategy.SINGLE:
         # repr used double quotes
         return (
             repr_escaped
-            .replace('\\"', DOUBLE_QUOTE)
-            .replace(SINGLE_QUOTE, "\\'")
+            .replace('\\"', DOUBLE_QUOTE_TEXT)
+            .replace(SINGLE_QUOTE_TEXT, "\\'")
         )
     else:
         # repr used single quotes
         return (
             repr_escaped
-            .replace("\\'", SINGLE_QUOTE)
-            .replace(DOUBLE_QUOTE, '\\"')
+            .replace("\\'", SINGLE_QUOTE_TEXT)
+            .replace(DOUBLE_QUOTE_TEXT, '\\"')
         )
 
 
-def pretty_single_line_str(s, indent, quote_type=None, strtype=str):
+def pretty_single_line_str(s, indent, quote_strategy=None):
     prefix = (
         'b'
-        if strtype is bytes
+        if isinstance(s, bytes)
         else ''
     )
 
-    if quote_type is None:
-        rendering_approach = determine_string_rendering_approach(s)
-        quote_type = rendering_approach.quote_type
+    if quote_strategy is None:
+        quote_strategy = determine_quote_strategy(s)
+    else:
+        if not isinstance(quote_strategy, QuoteStrategy):
+            raise ValueError
+
+    quote = quote_strategy.text_quote
 
     return concat([
         prefix,
-        quote_type,
-        escape_str_for_quote(quote_type, s),
-        quote_type
+        quote,
+        escape_str_for_quote(quote_strategy, s),
+        quote
     ])
 
 
@@ -278,11 +295,8 @@ def split_at(idx, sequence):
     return (sequence[:idx], sequence[idx:])
 
 
-def escaped_len(s, quote_type):
-    return len(escape_str_for_quote(quote_type, s))
-
-
-MAX_ESCAPE_LEN = len('\\U123456789')
+def escaped_len(s, quote_strategy):
+    return len(escape_str_for_quote(quote_strategy, s))
 
 
 WHITESPACE_PATTERN_TEXT = re.compile(r'(\s+)')
@@ -292,11 +306,7 @@ NONWORD_PATTERN_TEXT = re.compile(r'(\W+)')
 NONWORD_PATTERN_BYTES = re.compile(rb'(\W+)')
 
 
-def str_to_breakable_parts(s):
-    whitespace_pattern = r''
-
-
-def str_to_lines(max_len, quote_type, s):
+def str_to_lines(max_len, quote_strategy, s):
     if isinstance(s, str):
         whitespace_pattern = WHITESPACE_PATTERN_TEXT
         nonword_pattern = NONWORD_PATTERN_TEXT
@@ -306,7 +316,6 @@ def str_to_lines(max_len, quote_type, s):
         whitespace_pattern = WHITESPACE_PATTERN_BYTES
         nonword_pattern = NONWORD_PATTERN_BYTES
         empty = b''
-
 
     alternating_words_ws = whitespace_pattern.split(s)
 
@@ -329,7 +338,7 @@ def str_to_lines(max_len, quote_type, s):
         curr, is_whitespace = remaining_stack.pop()
         curr_line_parts.append(curr)
         curr_line_len = sum(
-            escaped_len(part, quote_type)
+            escaped_len(part, quote_strategy)
             for part in curr_line_parts
         )
 
@@ -353,7 +362,7 @@ def str_to_lines(max_len, quote_type, s):
 
             curr_line_parts.pop()
 
-            remaining_len = max_len - (curr_line_len - escaped_len(curr, quote_type))
+            remaining_len = max_len - (curr_line_len - escaped_len(curr, quote_strategy))
             this_line_part, next_line_part = split_at(max(remaining_len, 0), curr)
 
             curr_line_parts.append(this_line_part)
@@ -362,13 +371,6 @@ def str_to_lines(max_len, quote_type, s):
             curr_line_parts = []
 
             if next_line_part:
-                # remaining_len is calculated from an escaped str, which
-                # is longer than unescaped `curr`. E.g:
-                # >>> len('\U000108390')
-                # 1
-                # >>> len('\\U000108390')
-                # 11
-                # therefore next_line_part may be empty.
                 remaining_stack.append((next_line_part, is_whitespace))
 
     if curr_line_parts:
@@ -413,11 +415,12 @@ def pretty_str(
     depth_left,
     multiline_strategy=MULTILINE_STATEGY_PLAIN,
 ):
-    strtype = (
-        str
-        if isinstance(s, str)
-        else bytes
-    )
+    if depth_left == 0:
+        if isinstance(s, str):
+            return 'str(...)'
+        else:
+            assert isinstance(s, bytes)
+            return 'bytes(...)'
 
     peprint_indent = indent
 
@@ -427,7 +430,7 @@ def pretty_str(
         available_width = min(columns_left_in_line, columns_left_in_ribbon)
 
         singleline_str_chars = len(s) + len('""')
-        flat_version = pretty_single_line_str(s, peprint_indent, strtype=strtype)
+        flat_version = pretty_single_line_str(s, peprint_indent)
 
         if singleline_str_chars <= available_width:
             return flat_version
@@ -438,23 +441,11 @@ def pretty_str(
 
         each_line_max_str_len = each_line_ends_on_col - each_line_starts_on_col - 2
 
-        if strtype is str:
-            count_single_quotes = s.count(SINGLE_QUOTE)
-            count_double_quotes = s.count(DOUBLE_QUOTE)
-        else:
-            count_single_quotes = s.count(SINGLE_QUOTE.encode('ascii'))
-            count_double_quotes = s.count(DOUBLE_QUOTE.encode('ascii'))
-
-        if not (count_single_quotes or count_double_quotes):
-            quote_type = SINGLE_QUOTE
-        elif count_single_quotes < count_double_quotes:
-            quote_type = SINGLE_QUOTE
-        else:
-            quote_type = DOUBLE_QUOTE
+        quote_strategy = determine_quote_strategy(s)
 
         lines = str_to_lines(
             max_len=each_line_max_str_len,
-            quote_type=quote_type,
+            quote_strategy=quote_strategy,
             s=s,
         )
 
@@ -464,8 +455,7 @@ def pretty_str(
                 pretty_single_line_str(
                     line,
                     indent=peprint_indent,
-                    quote_type=quote_type,
-                    strtype=strtype
+                    quote_strategy=quote_strategy,
                 )
                 for line in lines
             )
@@ -585,7 +575,6 @@ def pformat(object, indent=4, width=79, depth=None, *, compact=False):
 
 
 def pprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False):
-
     if depth is None:
         depth = float('inf')
 
