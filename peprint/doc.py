@@ -14,6 +14,12 @@ def normalize_doc(doc):
     return doc.normalize()
 
 
+def is_doc(doc):
+    if isinstance(doc, str):
+        return True
+    return isinstance(doc, Doc)
+
+
 class Doc:
     __slots__ = ('meta', )
 

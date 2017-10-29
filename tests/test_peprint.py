@@ -4,6 +4,8 @@
 """Tests for `peprint` package."""
 
 import pytest
+from datetime import datetime, timezone, timedelta
+import pytz
 from itertools import cycle, islice
 import math
 import json
@@ -62,7 +64,6 @@ def test_content():
     nativepprint(('kewlio', ))
 
     pprint("asdfom ad fwekrj asdf jwerakjsdfna wr nasfj akwer akjsdf jlkawjer asf mnvaker nakjdfn kawe rkajdfn kajwenr awer asdf alwekr asdf aknwmen kawjern aisudfn kawek an")
-    assert False
 
 
 def test_align():
@@ -77,13 +78,11 @@ def test_align():
         )
     ])
     print(default_render_to_str(layout_smart(doc)))
-    assert False
 
 
 def test_fillsep():
     doc = fillsep(islice(cycle(["lorem", "ipsum", "dolor", "sit", "amet"]), 50))
     print(default_render_to_str(layout_smart(doc)))
-    assert False
 
 
 def test_always_breaking():
@@ -91,7 +90,6 @@ def test_always_breaking():
         'okay': ''.join(islice(cycle(['ab' * 20, ' ' * 3]), 10)),
     }
     pprint(data)
-    assert False
 
 
 def test_pretty_json():
@@ -102,7 +100,6 @@ def test_pretty_json():
     nativepprint(data)
     print('peprint')
     pprint(data)
-    assert False
 
 
 def test_perf():
@@ -130,7 +127,6 @@ def test_perf():
     )
 
     print(f'Native pprint took {native_dur}, peprint took {peprint_dur}')
-    assert False
 
 
 def test_recursive():
@@ -288,6 +284,14 @@ def test_many_cases():
             '?q=verylongquerystring&maxsize=1500&signature=af429fkven2aA'
             '#content1-header-something-something'
     ] * 5)
+
+
+def test_datetime():
+    pprint(datetime.utcnow().replace(tzinfo=pytz.utc), width=40)
+    pprint(timedelta(weeks=2, days=1, hours=3, milliseconds=5))
+    neg_td = -timedelta(weeks=2, days=1, hours=3, milliseconds=5)
+    pprint(neg_td)
+
 
 @given(nested_dictionaries())
 def test_nested_structures(value):

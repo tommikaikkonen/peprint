@@ -39,6 +39,9 @@
           ]
         },
         "customer_id": "1337",
+        "ok": true,
+        "not_ok": false,
+        "unknown": null,
         "friendly_from": "me@here.com",
         "msg_from": "me@here.com",
         "rcpt_to": "you@there.com",
