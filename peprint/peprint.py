@@ -1,4 +1,3 @@
-import enum
 import math
 import re
 import sys
@@ -292,21 +291,6 @@ DOUBLE_QUOTE_TEXT = '"'
 DOUBLE_QUOTE_BYTES = b'"'
 
 
-class QuoteStrategy(enum.Enum):
-    SINGLE = SINGLE_QUOTE_TEXT
-    DOUBLE = DOUBLE_QUOTE_TEXT
-
-    @property
-    def bytes_quote(self):
-        if self.value == SINGLE_QUOTE_TEXT:
-            return SINGLE_QUOTE_BYTES
-        return DOUBLE_QUOTE_BYTES
-
-    @property
-    def text_quote(self):
-        return self.value
-
-
 def determine_quote_strategy(s):
     if isinstance(s, str):
         single_quote = SINGLE_QUOTE_TEXT
@@ -319,10 +303,10 @@ def determine_quote_strategy(s):
     contains_double = double_quote in s
 
     if not contains_single:
-        return QuoteStrategy.SINGLE
+        return SINGLE_QUOTE_TEXT
 
     if not contains_double:
-        return QuoteStrategy.DOUBLE
+        return DOUBLE_QUOTE_TEXT
 
     assert contains_single and contains_double
 
@@ -330,15 +314,12 @@ def determine_quote_strategy(s):
     double_count = s.count(double_quote)
 
     if single_count <= double_count:
-        return QuoteStrategy.SINGLE
+        return SINGLE_QUOTE_TEXT
 
-    return QuoteStrategy.DOUBLE
+    return DOUBLE_QUOTE_TEXT
 
 
-def escape_str_for_quote(quote_strategy, s):
-    if not isinstance(quote_strategy, QuoteStrategy):
-        raise ValueError(f'Expected QuoteStrategy, got {quote_strategy}')
-
+def escape_str_for_quote(use_quote, s):
     escaped_with_quotes = repr(s)
     repr_used_quote = escaped_with_quotes[-1]
 
@@ -346,14 +327,14 @@ def escape_str_for_quote(quote_strategy, s):
     first_quote_at_index = escaped_with_quotes.find(repr_used_quote)
     repr_escaped = escaped_with_quotes[first_quote_at_index + 1:-1]
 
-    if repr_used_quote == quote_strategy.text_quote:
+    if repr_used_quote == use_quote:
         # repr produced the quotes we wanted -
         # escaping is correct.
         return repr_escaped
 
     # repr produced different quotes, which escapes
     # alternate quotes.
-    if quote_strategy == QuoteStrategy.SINGLE:
+    if use_quote == SINGLE_QUOTE_TEXT:
         # repr used double quotes
         return (
             repr_escaped
@@ -369,26 +350,21 @@ def escape_str_for_quote(quote_strategy, s):
         )
 
 
-def pretty_single_line_str(s, indent, quote_strategy=None):
+def pretty_single_line_str(s, indent, use_quote=None):
     prefix = (
         'b'
         if isinstance(s, bytes)
         else ''
     )
 
-    if quote_strategy is None:
-        quote_strategy = determine_quote_strategy(s)
-    else:
-        if not isinstance(quote_strategy, QuoteStrategy):
-            raise ValueError
-
-    quote = quote_strategy.text_quote
+    if use_quote is None:
+        use_quote = determine_quote_strategy(s)
 
     return concat([
         prefix,
-        quote,
-        escape_str_for_quote(quote_strategy, s),
-        quote
+        use_quote,
+        escape_str_for_quote(use_quote, s),
+        use_quote
     ])
 
 
@@ -396,8 +372,8 @@ def split_at(idx, sequence):
     return (sequence[:idx], sequence[idx:])
 
 
-def escaped_len(s, quote_strategy):
-    return len(escape_str_for_quote(quote_strategy, s))
+def escaped_len(s, use_quote):
+    return len(escape_str_for_quote(use_quote, s))
 
 
 WHITESPACE_PATTERN_TEXT = re.compile(r'(\s+)')
@@ -407,7 +383,7 @@ NONWORD_PATTERN_TEXT = re.compile(r'(\W+)')
 NONWORD_PATTERN_BYTES = re.compile(rb'(\W+)')
 
 
-def str_to_lines(max_len, quote_strategy, s):
+def str_to_lines(max_len, use_quote, s):
     if isinstance(s, str):
         whitespace_pattern = WHITESPACE_PATTERN_TEXT
         nonword_pattern = NONWORD_PATTERN_TEXT
@@ -439,7 +415,7 @@ def str_to_lines(max_len, quote_strategy, s):
         curr, is_whitespace = remaining_stack.pop()
         curr_line_parts.append(curr)
         curr_line_len = sum(
-            escaped_len(part, quote_strategy)
+            escaped_len(part, use_quote)
             for part in curr_line_parts
         )
 
@@ -463,7 +439,7 @@ def str_to_lines(max_len, quote_strategy, s):
 
             curr_line_parts.pop()
 
-            remaining_len = max_len - (curr_line_len - escaped_len(curr, quote_strategy))
+            remaining_len = max_len - (curr_line_len - escaped_len(curr, use_quote))
             this_line_part, next_line_part = split_at(max(remaining_len, 0), curr)
 
             curr_line_parts.append(this_line_part)
@@ -543,11 +519,11 @@ def pretty_str(
 
         each_line_max_str_len = each_line_ends_on_col - each_line_starts_on_col - 2
 
-        quote_strategy = determine_quote_strategy(s)
+        use_quote = determine_quote_strategy(s)
 
         lines = str_to_lines(
             max_len=each_line_max_str_len,
-            quote_strategy=quote_strategy,
+            use_quote=use_quote,
             s=s,
         )
 
@@ -557,7 +533,7 @@ def pretty_str(
                 pretty_single_line_str(
                     line,
                     indent=peprint_indent,
-                    quote_strategy=quote_strategy,
+                    use_quote=use_quote,
                 )
                 for line in lines
             )
