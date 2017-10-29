@@ -26,26 +26,45 @@ from .render import default_render_to_stream
 from .utils import intersperse
 
 
-def _pretty_dispatch(produce_doc, value, indent, depth_left, visited=None):
-    if visited is None:
-        visited = set()
+class PrettyContext:
+    def __init__(self, indent, depth_left, visited=None):
+        self.indent = indent
+        self.depth_left = depth_left
+        if visited is None:
+            visited = set()
+        self.visited = visited
 
-    assert isinstance(visited, set)
+    def nested_call(self):
+        return PrettyContext(
+            indent=self.indent,
+            depth_left=self.depth_left - 1,
+            visited=self.visited
+        )
 
-    value_id = id(value)
-    if value_id in visited:
+    def start_visit(self, value):
+        self.visited.add(id(value))
+
+    def end_visit(self, value):
+        self.visited.remove(id(value))
+
+    def is_visited(self, value):
+        return id(value) in self.visited
+
+
+def _pretty_dispatch(produce_doc, value, ctx):
+    if ctx.is_visited(value):
         return _pretty_recursion(value)
-    else:
-        visited.add(value_id)
 
-    doc = produce_doc(value, indent, depth_left, visited=visited)
+    ctx.start_visit(value)
 
-    visited.remove(value_id)
+    doc = produce_doc(value, ctx)
+
+    ctx.end_visit(value)
 
     return doc
 
 
-def _repr_pretty(value, indent, depth_left, visited=None):
+def _repr_pretty(value, ctx):
     return repr(value)
 
 
@@ -115,19 +134,33 @@ def fncall(fndoc, argdocs=(), kwargdocs=(), indent=None):
     ])
 
 
+@register_pretty(tuple)
+@register_pretty(list)
 @register_pretty(set)
 @register_pretty(frozenset)
-def pretty_bracketable_iterable(value, indent, depth_left, visited):
+def pretty_bracketable_iterable(value, ctx):
+    dangle = False
+
     if isinstance(value, list):
         left, right = '[', ']'
     elif isinstance(value, tuple):
         left, right = '(', ')'
+        dangle = True
     elif isinstance(value, set):
         left, right = '{', '}'
     elif isinstance(value, frozenset):
         left, right = 'frozenset({', '})'
 
-    if depth_left == 0:
+    if not value:
+        if isinstance(value, (list, tuple)):
+            return left + right
+        elif isinstance(value, set):
+            return 'set()'
+        else:
+            assert isinstance(value, frozenset)
+            return 'frozenset()'
+
+    if ctx.depth_left == 0:
         return f'{left}...{right}'
 
     sep = concat([',', LINE])
@@ -135,60 +168,29 @@ def pretty_bracketable_iterable(value, indent, depth_left, visited):
         (
             pretty_str(
                 el,
-                indent=indent,
-                depth_left=depth_left - 1,
+                ctx=ctx.nested_call(),
                 multiline_strategy=MULTILINE_STATEGY_HANG,
-                visited=visited,
             )
             if isinstance(el, (str, bytes))
             else pretty_python_value(
                 el,
-                indent=indent,
-                depth_left=depth_left - 1,
-                visited=visited,
+                ctx.nested_call()
             )
         )
         for el in value
     )
 
+    separated_els = intersperse(sep, els)
+
+    if dangle:
+        separated_els = chain(separated_els, [','])
+
     return bracket(
         left,
-        concat(intersperse(sep, els)),
+        concat(separated_els),
         right,
-        indent=indent
+        indent=ctx.indent
     )
-
-
-@register_pretty(list)
-def pretty_list(arr, indent, depth_left, visited):
-    return pretty_bracketable_iterable(
-        arr,
-        indent=indent,
-        depth_left=depth_left,
-        visited=visited,
-    )
-
-
-@register_pretty(tuple)
-def pretty_tuple(tup, indent, depth_left, visited):
-    if depth_left == 0:
-        return 'tuple(...)'
-
-    if not tup:
-        return '()'
-    elif len(tup) == 1:
-        return concat([
-            '(',
-            pretty_python_value(
-                tup[0],
-                indent=indent,
-                depth_left=depth_left - 1,
-                visited=visited,
-            ),
-            ',)'
-        ])
-    else:
-        return pretty_bracketable_iterable(tup)
 
 
 class _AlwaysSortable(object):
@@ -208,8 +210,8 @@ class _AlwaysSortable(object):
 
 
 @register_pretty(dict)
-def pretty_dict(d, indent, depth_left, visited):
-    if depth_left == 0:
+def pretty_dict(d, ctx):
+    if ctx.depth_left == 0:
         return '{...}'
     pairs = []
     for k in sorted(d.keys(), key=_AlwaysSortable):
@@ -218,32 +220,25 @@ def pretty_dict(d, indent, depth_left, visited):
         if isinstance(k, (str, bytes)):
             kdoc = pretty_str(
                 k,
-                indent=indent,
-                depth_left=depth_left - 1,
+                ctx=ctx.nested_call(),
                 multiline_strategy=MULTILINE_STATEGY_PARENS,
-                visited=visited,
             )
         else:
             kdoc = pretty_python_value(
                 k,
-                indent=indent,
-                depth_left=depth_left - 1
+                ctx=ctx.nested_call()
             )
 
         if isinstance(v, (str, bytes)):
             vdoc = pretty_str(
                 v,
-                indent=indent,
-                depth_left=depth_left - 1,
+                ctx=ctx.nested_call(),
                 multiline_strategy=MULTILINE_STATEGY_INDENTED,
-                visited=visited,
             )
         else:
             vdoc = pretty_python_value(
                 v,
-                indent=indent,
-                depth_left=depth_left - 1,
-                visited=visited,
+                ctx=ctx.nested_call()
             )
         pairs.append((kdoc, vdoc))
 
@@ -264,7 +259,7 @@ def pretty_dict(d, indent, depth_left, visited):
         '{',
         concat(intersperse(pairsep, pairdocs)),
         '}',
-        indent=4,
+        indent=ctx.indent,
         force_break=len(pairs) > 2,
     )
 
@@ -276,8 +271,8 @@ NEG_INF_FLOAT = float('-inf')
 
 
 @register_pretty(float)
-def pretty_float(value, indent, depth_left, visited):
-    if depth_left == 0:
+def pretty_float(value, ctx):
+    if ctx.depth_left == 0:
         return 'float(...)'
 
     if value == INF_FLOAT:
@@ -519,19 +514,17 @@ MULTILINE_STATEGY_PLAIN = 'MULTILINE_STATEGY_PLAIN'
 @register_pretty(bytes)
 def pretty_str(
     s,
-    indent,
-    depth_left,
-    visited,
+    ctx,
     multiline_strategy=MULTILINE_STATEGY_PLAIN,
 ):
-    if depth_left == 0:
+    if ctx.depth_left == 0:
         if isinstance(s, str):
             return 'str(...)'
         else:
             assert isinstance(s, bytes)
             return 'bytes(...)'
 
-    peprint_indent = indent
+    peprint_indent = ctx.indent
 
     def evaluator(indent, column, page_width, ribbon_width):
         columns_left_in_line = page_width - column
@@ -604,11 +597,11 @@ def pretty_str(
     return contextual(evaluator)
 
 
-def _pretty_datetime_flat(dt, indent, depth_left, visited):
+def _pretty_datetime_flat(dt, ctx):
     return repr(dt)
 
 
-def _pretty_datetime_broken(dt, indent, depth_left, visited):
+def _pretty_datetime_broken(dt, ctx):
     dt_kwargs = [
         (k, getattr(dt, k))
         for k in (
@@ -640,9 +633,7 @@ def _pretty_datetime_broken(dt, indent, depth_left, visited):
     if dt.tzinfo is not None:
         tzinfodoc = pretty_python_value(
             dt.tzinfo,
-            indent=indent,
-            depth_left=depth_left - 1,
-            visited=visited,
+            ctx=ctx.nested_call()
         )
         kwargdocs.append(
             ('tzinfo', tzinfodoc)
@@ -654,32 +645,31 @@ def _pretty_datetime_broken(dt, indent, depth_left, visited):
     return fncall(
         datetime,
         kwargdocs=kwargdocs,
-        indent=indent
+        indent=ctx.indent
     )
 
 
 @register_pretty(datetime)
-def pretty_datetime(dt, indent, depth_left, visited):
+def pretty_datetime(dt, ctx):
     return group(
         flat_choice(
             when_flat=_pretty_datetime_flat(
                 dt,
-                indent,
-                depth_left=depth_left,
-                visited=visited,
+                ctx=ctx,
             ),
             when_broken=_pretty_datetime_broken(
                 dt,
-                indent,
-                depth_left=depth_left,
-                visited=visited,
+                ctx=ctx,
             )
         )
     )
 
 
 @register_pretty(timedelta)
-def pretty_timedelta(delta, indent, depth_left, visited):
+def pretty_timedelta(delta, ctx):
+    if ctx.depth_left == 0:
+        return 'datetime.timedelta(...)'
+
     pos_delta = abs(delta)
     negative = delta != pos_delta
 
@@ -710,7 +700,7 @@ def pretty_timedelta(delta, indent, depth_left, visited):
                 for k, v in attrs
                 if v != 0
             ),
-            indent=indent
+            indent=ctx.indent
         )
     )
 
@@ -725,9 +715,7 @@ def pformat(object, indent=4, width=79, depth=None, *, compact=False):
         depth = float('inf')
     doc = pretty_python_value(
         object,
-        indent=indent,
-        depth_left=depth,
-        visited=set()
+        ctx=PrettyContext(indent=indent, depth_left=depth, visited=set())
     )
     # TODO: depth
     # TODO: compact
@@ -741,9 +729,7 @@ def pprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False
 
     doc = pretty_python_value(
         object,
-        indent=indent,
-        depth_left=depth,
-        visited=set()
+        ctx=PrettyContext(indent=indent, depth_left=depth, visited=set())
     )
     if stream is None:
         stream = sys.stdout

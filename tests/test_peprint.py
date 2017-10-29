@@ -4,7 +4,7 @@
 """Tests for `peprint` package."""
 
 import pytest
-from datetime import datetime, timezone, timedelta
+import datetime
 import pytz
 from itertools import cycle, islice
 import math
@@ -142,7 +142,9 @@ def primitives():
         st.integers() |
         st.floats(allow_nan=False) |
         st.text() |
-        st.binary()
+        st.binary() |
+        st.datetimes() |
+        st.timedeltas()
     )
 
 
@@ -151,7 +153,9 @@ hashable_primitives = (
     st.integers() |
     st.floats(allow_nan=False) |
     st.text() |
-    st.binary()
+    st.binary() |
+    st.datetimes() |
+    st.timedeltas()
 )
 
 
@@ -178,7 +182,7 @@ def hashable_containers(primitives):
     def extend(base):
         return st.one_of(
             st.frozensets(base),
-            st.tuples(base)
+            st.lists(base).map(tuple),
         )
     return st.recursive(primitives, extend)
 
@@ -187,7 +191,7 @@ def containers(primitives):
     def extend(base):
         return st.one_of(
             st.lists(base),
-            st.tuples(base),
+            st.lists(base).map(tuple),
             st.dictionaries(keys=hashable_containers(primitives), values=base),
         )
 
@@ -223,7 +227,8 @@ def test_bytes_pprint_equals_repr(bytestr):
 @given(containers(primitives()))
 def test_readable(value):
     formatted = pformat(value)
-    assert eval(formatted) == value
+
+    assert eval(formatted, None, {'datetime': datetime}) == value
 
 
 def nested_dictionaries():
@@ -287,9 +292,9 @@ def test_many_cases():
 
 
 def test_datetime():
-    pprint(datetime.utcnow().replace(tzinfo=pytz.utc), width=40)
-    pprint(timedelta(weeks=2, days=1, hours=3, milliseconds=5))
-    neg_td = -timedelta(weeks=2, days=1, hours=3, milliseconds=5)
+    pprint(datetime.datetime.utcnow().replace(tzinfo=pytz.utc), width=40)
+    pprint(datetime.timedelta(weeks=2, days=1, hours=3, milliseconds=5))
+    neg_td = -datetime.timedelta(weeks=2, days=1, hours=3, milliseconds=5)
     pprint(neg_td)
 
 
