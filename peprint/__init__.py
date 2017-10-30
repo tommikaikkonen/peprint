@@ -77,7 +77,7 @@ def install_to_ipython():
             self.stream = stream
 
         def pretty(self, obj):
-            cpprint(obj)
+            cpprint(obj, stream=self.stream)
 
         def flush(self):
             pass
