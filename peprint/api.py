@@ -5,6 +5,7 @@ from .doc import (
     Doc,
     FlatChoice,
     Fill,
+    Identity,
     Group,
     Nest,
     Text,
@@ -44,6 +45,10 @@ def concat(xs, *, meta=None):
     elif len(xs) == 1:
         return xs[0]
     return Concat([cast_doc(x) for x in xs], meta=meta)
+
+
+def with_meta(meta, doc):
+    return Identity(doc, meta=meta)
 
 
 def contextual(fn, *, meta=None):

@@ -30,6 +30,22 @@ class Doc:
         return self
 
 
+class Identity(Doc):
+    __slots__ = 'doc'
+
+    def __init__(self, doc, meta=None):
+        self.doc = doc
+        self.meta = meta
+
+    def normalize(self):
+        if self.meta is None:
+            return self.doc
+        return self
+
+    def __repr__(self):
+        return f'Identity({repr(self.doc)})'
+
+
 class Text(Doc):
     __slots__ = ('value', )
 

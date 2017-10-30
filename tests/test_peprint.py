@@ -7,16 +7,19 @@ import pytest
 import datetime
 import pytz
 from itertools import cycle, islice
-import math
 import json
 import timeit
 
-from hypothesis import given, settings, seed
+from hypothesis import given, settings
 from hypothesis import strategies as st
-from peprint import pprint, pformat
+from peprint import (
+    pprint,
+    pformat,
+    cpprint,
+)
 from pprint import (
     pprint as nativepprint,
-    pformat as nativepformat
+    pformat as nativepformat,
 )
 from peprint.api import (
     align,
@@ -99,7 +102,7 @@ def test_pretty_json():
     print('native pprint')
     nativepprint(data)
     print('peprint')
-    pprint(data)
+    cpprint(data)
 
 
 def test_perf():
@@ -200,7 +203,7 @@ def containers(primitives):
 
 @given(containers(primitives()))
 def test_all_python_values(value):
-    pprint(value)
+    cpprint(value)
 
 
 @settings(max_examples=5000, max_iterations=5000)

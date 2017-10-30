@@ -1,9 +1,7 @@
 import math
 import re
-import sys
 from datetime import datetime, timedelta
 from functools import singledispatch, partial
-from io import StringIO
 from itertools import chain, cycle, dropwhile
 
 from .api import (
@@ -13,16 +11,51 @@ from .api import (
     always_break,
     flat_choice,
     group,
+    with_meta,
+    NIL,
     LINE,
     SOFTLINE,
     HARDLINE
 )
-from .doc import is_doc
 
 from .layout import layout_smart
-from .render import default_render_to_stream
-
+from .syntax import SyntaxIdentifier
 from .utils import intersperse
+
+
+COMMA = with_meta(SyntaxIdentifier.COMMA, ',')
+ELLIPSIS = with_meta(SyntaxIdentifier.ELLIPSIS, '...')
+
+LPAREN = with_meta(SyntaxIdentifier.PAREN, '(')
+RPAREN = with_meta(SyntaxIdentifier.PAREN, ')')
+
+LBRACKET = with_meta(SyntaxIdentifier.BRACKET, '[')
+RBRACKET = with_meta(SyntaxIdentifier.BRACKET, ']')
+
+LBRACE = with_meta(SyntaxIdentifier.BRACE, '{')
+RBRACE = with_meta(SyntaxIdentifier.BRACE, '}')
+
+NEG_OP = with_meta(SyntaxIdentifier.OPERATOR, '-')
+MUL_OP = with_meta(SyntaxIdentifier.OPERATOR, '*')
+ADD_OP = with_meta(SyntaxIdentifier.OPERATOR, '+')
+
+
+def builtin_identifier(s):
+    return with_meta(SyntaxIdentifier.IDENTIFIER_BUILTIN, s)
+
+
+def identifier(s):
+    return with_meta(SyntaxIdentifier.IDENTIFIER, s)
+
+
+def general_identifier(s):
+    if callable(s):
+        module, qualname = s.__module__, s.__qualname__
+
+        if module == 'builtins':
+            return builtin_identifier(qualname)
+        return identifier(f'{module}.{qualname}')
+    return identifier(s)
 
 
 class PrettyContext:
@@ -77,16 +110,6 @@ def register_pretty(_type):
     return decorator
 
 
-def write_doc_to_stream(doc, stream, width, newline='\n', separator=' '):
-    sdocs = layout_smart(doc, width=width)
-    default_render_to_stream(
-        stream,
-        sdocs,
-        newline=newline,
-        separator=separator
-    )
-
-
 def bracket(left, child, right, indent, force_break=False,):
     outer = always_break if force_break else group
     return outer(
@@ -99,70 +122,113 @@ def bracket(left, child, right, indent, force_break=False,):
     )
 
 
-def fncall(fndoc, argdocs=(), kwargdocs=(), indent=None):
-    if indent is None:
+def pycall(ctx, fn, *args, **kwargs):
+    fndoc = general_identifier(fn)
+    if not kwargs and len(args) == 1:
+        sole_arg = args[0]
+        if isinstance(sole_arg, (list, dict, tuple)):
+            return group(
+                concat([
+                    fndoc,
+                    LPAREN,
+                    pretty_python_value(sole_arg, ctx),
+                    RPAREN
+                ])
+            )
+
+    return fncall(
+        fndoc,
+        argdocs=(
+            pretty_python_value(arg, ctx)
+            for arg in args
+        ),
+        kwargdocs=(
+            (kwarg, pretty_python_value(v, ctx))
+            for kwarg, v in kwargs.items()
+        ),
+        ctx=ctx
+    )
+
+
+def fncall(fndoc, argdocs=(), kwargdocs=(), ctx=None):
+    if ctx is None:
         raise ValueError
 
-    if not is_doc(fndoc):
-        fndoc = f'{fndoc.__module__}.{fndoc.__qualname__}'
+    if callable(fndoc):
+        fndoc = general_identifier(fndoc)
 
-    argsep = concat([',', LINE])
+    argsep = concat([COMMA, LINE])
 
     kwargdocs = (
-        concat([f'{binding}=', doc])
+        concat([
+            binding,
+            with_meta(
+                SyntaxIdentifier.KWARG_ASSIGN,
+                '='
+            ),
+            doc
+        ])
         for binding, doc in kwargdocs
     )
 
-    return concat([
-        fndoc,
-        nest(
-            indent,
-            concat([
-                '(',
-                SOFTLINE,
-                concat(
-                    intersperse(
-                        argsep,
-                        chain(argdocs, kwargdocs)
+    allarg_docs = [*argdocs, *kwargdocs]
+    if not allarg_docs:
+        return concat([
+            fndoc,
+            LPAREN,
+            RPAREN,
+        ])
+
+    return group(
+        concat([
+            fndoc,
+            nest(
+                ctx.indent,
+                concat([
+                    LPAREN,
+                    SOFTLINE,
+                    with_meta(
+                        SyntaxIdentifier.ARGUMENTS,
+                        concat(
+                            intersperse(
+                                argsep,
+                                allarg_docs
+                            )
+                        ),
                     )
-                ),
-            ])
-        ),
-        SOFTLINE,
-        ')'
-    ])
+                ])
+            ),
+            SOFTLINE,
+            RPAREN
+        ])
+    )
 
 
 @register_pretty(tuple)
 @register_pretty(list)
 @register_pretty(set)
-@register_pretty(frozenset)
 def pretty_bracketable_iterable(value, ctx):
     dangle = False
 
     if isinstance(value, list):
-        left, right = '[', ']'
+        left, right = LBRACKET, RBRACKET
     elif isinstance(value, tuple):
-        left, right = '(', ')'
+        left, right = LPAREN, RPAREN
         dangle = True
     elif isinstance(value, set):
-        left, right = '{', '}'
-    elif isinstance(value, frozenset):
-        left, right = 'frozenset({', '})'
+        left, right = LBRACE, RBRACE
 
     if not value:
         if isinstance(value, (list, tuple)):
-            return left + right
-        elif isinstance(value, set):
-            return 'set()'
+            return concat([left, right])
         else:
-            assert isinstance(value, frozenset)
-            return 'frozenset()'
+            assert isinstance(value, set)
+            return pycall(ctx, set)
 
     if ctx.depth_left == 0:
-        return f'{left}...{right}'
+        return concat([left, ELLIPSIS, right])
 
-    sep = concat([',', LINE])
+    sep = concat([COMMA, LINE])
     els = (
         (
             pretty_str(
@@ -182,7 +248,7 @@ def pretty_bracketable_iterable(value, ctx):
     separated_els = intersperse(sep, els)
 
     if dangle:
-        separated_els = chain(separated_els, [','])
+        separated_els = chain(separated_els, [COMMA])
 
     return bracket(
         left,
@@ -190,6 +256,13 @@ def pretty_bracketable_iterable(value, ctx):
         right,
         indent=ctx.indent
     )
+
+
+@register_pretty(frozenset)
+def pretty_frozenset(value, ctx):
+    if value:
+        return pycall(ctx, frozenset, list(value))
+    return pycall(ctx, frozenset)
 
 
 class _AlwaysSortable(object):
@@ -219,7 +292,7 @@ def pretty_dict(d, ctx):
         if isinstance(k, (str, bytes)):
             kdoc = pretty_str(
                 k,
-                ctx=ctx.nested_call(),
+                ctx=ctx,  # not a nested call on purpose
                 multiline_strategy=MULTILINE_STATEGY_PARENS,
             )
         else:
@@ -241,7 +314,7 @@ def pretty_dict(d, ctx):
             )
         pairs.append((kdoc, vdoc))
 
-    pairsep = concat([',', LINE])
+    pairsep = concat([COMMA, LINE])
 
     pairdocs = (
         group(
@@ -255,9 +328,9 @@ def pretty_dict(d, ctx):
     )
 
     res = bracket(
-        '{',
+        LBRACE,
         concat(intersperse(pairsep, pairdocs)),
-        '}',
+        RBRACE,
         indent=ctx.indent,
         force_break=len(pairs) > 2,
     )
@@ -272,16 +345,34 @@ NEG_INF_FLOAT = float('-inf')
 @register_pretty(float)
 def pretty_float(value, ctx):
     if ctx.depth_left == 0:
-        return 'float(...)'
+        return pycall(ctx, float, ...)
 
     if value == INF_FLOAT:
-        return "float('inf')"
+        return pycall(ctx, float, 'inf')
     elif value == NEG_INF_FLOAT:
-        return "float('-inf')"
+        return pycall(ctx, float, '-inf')
     elif math.isnan(value):
-        return "float('nan')"
+        return pycall(ctx, float, 'nan')
 
-    return repr(value)
+    return with_meta(SyntaxIdentifier.NUMBER_LITERAL, repr(value))
+
+
+@register_pretty(int)
+def pretty_int(value, ctx):
+    if ctx.depth_left == 0:
+        return pycall(ctx, int, ...)
+    return with_meta(SyntaxIdentifier.NUMBER_LITERAL, repr(value))
+
+
+@register_pretty(type(...))
+def pretty_ellipsis(value, ctx):
+    return ELLIPSIS
+
+
+@register_pretty(bool)
+@register_pretty(type(None))
+def pretty_singletons(value, ctx):
+    return with_meta(SyntaxIdentifier.SINGLETONS, repr(value))
 
 
 SINGLE_QUOTE_TEXT = "'"
@@ -352,7 +443,7 @@ def escape_str_for_quote(use_quote, s):
 
 def pretty_single_line_str(s, indent, use_quote=None):
     prefix = (
-        'b'
+        with_meta(SyntaxIdentifier.PREFIX, 'b')
         if isinstance(s, bytes)
         else ''
     )
@@ -362,9 +453,14 @@ def pretty_single_line_str(s, indent, use_quote=None):
 
     return concat([
         prefix,
-        use_quote,
-        escape_str_for_quote(use_quote, s),
-        use_quote
+        with_meta(
+            SyntaxIdentifier.STRING_LITERAL,
+            concat([
+                use_quote,
+                escape_str_for_quote(use_quote, s),
+                use_quote
+            ])
+        )
     ])
 
 
@@ -399,14 +495,18 @@ def str_to_lines(max_len, use_quote, s):
     if len(alternating_words_ws) <= 1:
         # no whitespace: try splitting with nonword pattern.
         alternating_words_ws = nonword_pattern.split(s)
-        starts_with_whitespace = nonword_pattern.match(alternating_words_ws[0])
+        starts_with_whitespace = bool(nonword_pattern.match(alternating_words_ws[0]))
     else:
-        starts_with_whitespace = whitespace_pattern.match(alternating_words_ws[0])
+        starts_with_whitespace = bool(whitespace_pattern.match(alternating_words_ws[0]))
 
-    tagged_alternating = (
-        list(zip(alternating_words_ws, cycle([True, False])))
-        if starts_with_whitespace
-        else list(zip(alternating_words_ws, cycle([False, True])))
+    # List[Tuple[str, bool]]
+    # The boolean associated with each part indicates if it is a
+    # whitespce/non-word part or not.
+    tagged_alternating = list(
+        zip(
+            alternating_words_ws,
+            cycle([starts_with_whitespace, not starts_with_whitespace])
+        )
     )
 
     remaining_stack = list(reversed(tagged_alternating))
@@ -573,11 +673,8 @@ def pretty_str(
     return contextual(evaluator)
 
 
-def _pretty_datetime_flat(dt, ctx):
-    return repr(dt)
-
-
-def _pretty_datetime_broken(dt, ctx):
+@register_pretty(datetime)
+def pretty_datetime(dt, ctx):
     dt_kwargs = [
         (k, getattr(dt, k))
         for k in (
@@ -599,10 +696,12 @@ def _pretty_datetime_broken(dt, ctx):
     )
 
     kwargdocs = [
-        # values are always ints, so we can shortcut
         # by returning a repr str instead of calling
         # pretty_python_value
-        (k, repr(v))
+        (
+            k,
+            pretty_python_value(v, ctx.nested_call())
+        )
         for k, v in reversed(kwargs_to_show)
     ]
 
@@ -618,25 +717,20 @@ def _pretty_datetime_broken(dt, ctx):
     if dt.fold:
         kwargdocs.append(('fold', '1'))
 
-    return fncall(
-        datetime,
-        kwargdocs=kwargdocs,
-        indent=ctx.indent
-    )
+    if len(kwargdocs) == 3:  # year, month, day
+        return pycall(
+            ctx,
+            datetime,
+            dt.year,
+            dt.month,
+            dt.day,
+        )
 
-
-@register_pretty(datetime)
-def pretty_datetime(dt, ctx):
     return group(
-        flat_choice(
-            when_flat=_pretty_datetime_flat(
-                dt,
-                ctx=ctx,
-            ),
-            when_broken=_pretty_datetime_broken(
-                dt,
-                ctx=ctx,
-            )
+        fncall(
+            datetime,
+            kwargdocs=kwargdocs,
+            ctx=ctx
         )
     )
 
@@ -644,7 +738,7 @@ def pretty_datetime(dt, ctx):
 @register_pretty(timedelta)
 def pretty_timedelta(delta, ctx):
     if ctx.depth_left == 0:
-        return 'datetime.timedelta(...)'
+        return pycall(ctx, timedelta, ...)
 
     pos_delta = abs(delta)
     negative = delta != pos_delta
@@ -653,13 +747,11 @@ def pretty_timedelta(delta, ctx):
     seconds = pos_delta.seconds
     microseconds = pos_delta.microseconds
 
-    weeks, days = divmod(days, 7)
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     milliseconds, microseconds = divmod(microseconds, 1000)
 
     attrs = [
-        ('weeks', weeks),
         ('days', days),
         ('hours', hours),
         ('minutes', minutes),
@@ -668,49 +760,53 @@ def pretty_timedelta(delta, ctx):
         ('microseconds', microseconds),
     ]
 
-    return group(
+    kwargdocs = [
+        (k, pretty_python_value(v, ctx=ctx.nested_call()))
+        for k, v in attrs
+        if v != 0
+    ]
+
+    if kwargdocs and kwargdocs[0][0] == 'days':
+        years, days = divmod(days, 365)
+        if years:
+            _doc = concat([
+                pretty_python_value(years, ctx),
+                ' ',
+                MUL_OP,
+                ' ',
+                pretty_python_value(365, ctx),
+                ' ',
+                ADD_OP,
+                ' ',
+                pretty_python_value(days, ctx)
+            ])
+
+            kwargdocs[0] = ('days', _doc)
+
+    doc = group(
         fncall(
-            f"{'-' if negative else ''}datetime.timedelta",
-            kwargdocs=(
-                (k, repr(v))
-                for k, v in attrs
-                if v != 0
-            ),
-            indent=ctx.indent
+            timedelta,
+            kwargdocs=kwargdocs,
+            ctx=ctx
         )
     )
+
+    if negative:
+        doc = concat([NEG_OP, doc])
+
+    return doc
 
 
 def _pretty_recursion(value):
     return f'<Recursion on {type(value).__name__} with id={id(value)}>'
 
 
-def pformat(object, indent=4, width=79, depth=None, *, compact=False):
-    stream = StringIO()
-    if depth is None:
-        depth = float('inf')
-    doc = pretty_python_value(
-        object,
-        ctx=PrettyContext(indent=indent, depth_left=depth, visited=set())
-    )
-    # TODO: depth
-    # TODO: compact
-    write_doc_to_stream(doc, stream, width=width, separator=' ')
-    return stream.getvalue()
-
-
-def pprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False):
+def python_to_sdocs(value, indent, width, depth):
     if depth is None:
         depth = float('inf')
 
     doc = pretty_python_value(
-        object,
+        value,
         ctx=PrettyContext(indent=indent, depth_left=depth, visited=set())
     )
-    if stream is None:
-        stream = sys.stdout
-
-    # TODO: depth
-    # TODO: compact
-    write_doc_to_stream(doc, stream, width=width, separator=' ')
-    stream.write('\n')
+    return layout_smart(doc, width=width)

@@ -6,8 +6,12 @@ __author__ = """Tommi Kaikkonen"""
 __email__ = 'kaikkonentommi@gmail.com'
 __version__ = '0.1.0'
 
+from io import StringIO
+import sys
+
 from pprint import isrecursive, isreadable, saferepr
-from .peprint import pprint, pformat
+from .peprint import python_to_sdocs
+from .render import default_render_to_stream
 
 
 class PrettyPrinter:
@@ -29,3 +33,53 @@ class PrettyPrinter:
 
     def format(self, object):
         raise NotImplementedError
+
+
+def pformat(object, indent=4, width=79, depth=None, *, compact=False):
+    # TODO: compact
+    sdocs = python_to_sdocs(object, indent=indent, width=width, depth=depth)
+    stream = StringIO()
+    default_render_to_stream(stream, sdocs)
+    return stream.getvalue()
+
+
+def pprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False):
+    # TODO: compact
+    sdocs = python_to_sdocs(object, indent=indent, width=width, depth=depth)
+    if stream is None:
+        stream = sys.stdout
+    default_render_to_stream(stream, sdocs)
+    stream.write('\n')
+
+
+try:
+    from .extras.color import colored_render_to_stream
+except ImportError:
+    def cpprint(*args, **kwargs):
+        raise ImportError("You need to install the 'colorful' package for colored output.")
+else:
+    def cpprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False):
+        sdocs = python_to_sdocs(object, indent=indent, width=width, depth=depth)
+        if stream is None:
+            stream = sys.stdout
+        colored_render_to_stream(stream, sdocs)
+        stream.write('\n')
+
+
+def install_to_ipython():
+    try:
+        import IPython.lib.pretty
+    except ImportError:
+        return
+
+    class IPythonCompatPrinter:
+        def __init__(self, stream, *args, **kwargs):
+            self.stream = stream
+
+        def pretty(self, obj):
+            cpprint(obj)
+
+        def flush(self):
+            pass
+
+    IPython.lib.pretty.RepresentationPrinter = IPythonCompatPrinter

@@ -26,6 +26,7 @@ from .doc import (
     Contextual,
     FlatChoice,
     Fill,
+    Identity,
     Group,
     Nest,
     Text,
@@ -77,6 +78,8 @@ def fast_fitting_predicate(
                 (indent, mode, doc)
                 for doc in reversed(doc.docs)
             )
+        elif isinstance(doc, Identity):
+            triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, Fill):
             triplestack.extend(
                 (indent, mode, doc)
@@ -111,6 +114,10 @@ def fast_fitting_predicate(
                 ribbon_width=ribbon_width,
             )
             triplestack.append((indent, mode, evaluated_doc))
+        elif isinstance(doc, SMetaPush):
+            continue
+        elif isinstance(doc, SMetaPop):
+            continue
         else:
             raise ValueError((indent, mode, doc))
 
@@ -152,6 +159,8 @@ def smart_fitting_predicate(
                 (indent, mode, doc)
                 for doc in reversed(doc.docs)
             )
+        elif isinstance(doc, Identity):
+            triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, Fill):
             # Same as the Concat case.
             triplestack.extend(
@@ -193,6 +202,10 @@ def smart_fitting_predicate(
                 ribbon_width=ribbon_width,
             )
             triplestack.append((indent, mode, evaluated_doc))
+        elif isinstance(doc, SMetaPush):
+            continue
+        elif isinstance(doc, SMetaPop):
+            continue
         else:
             raise ValueError((indent, mode, doc))
 
@@ -259,6 +272,8 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
                 triplestack.append((indent, mode, doc.when_flat))
             else:
                 raise ValueError
+        elif isinstance(doc, Identity):
+            triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, Nest):
             # Increase indentation and process the nested doc.
             triplestack.append((indent + doc.indent, mode, doc.doc))

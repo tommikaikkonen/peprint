@@ -3,6 +3,8 @@ from io import StringIO
 from .sdoc import (
     SText,
     SLine,
+    SMetaPush,
+    SMetaPop,
 )
 
 
