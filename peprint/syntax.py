@@ -1,22 +1,15 @@
 from enum import IntEnum, auto
 
-class SyntaxIdentifier(IntEnum):
-    ARGUMENTS = auto()
-    KWARG_ASSIGN = auto()
-    PREFIX = auto()
-    IDENTIFIER = auto()
-    IDENTIFIER_BUILTIN = auto()
+class Token(IntEnum):
+    KEYWORD_CONSTANT = auto()
+    NAME_BUILTIN = auto()
+    NAME_ENTITY = auto()
+    NAME_FUNCTION = auto()
+    LITERAL_STRING = auto()
+    STRING_AFFIX = auto()
+    STRING_ESCAPE = auto()
+    NUMBER_BINARY = auto()
+    NUMBER_FLOAT = auto()
+    NUMBER_INT = auto()
     OPERATOR = auto()
-
-    COMMA = auto()
-    ELLIPSIS = auto()
-
-    PAREN = auto()
-
-    BRACKET = auto()
-
-    BRACE = auto()
-
-    SINGLETONS = auto()
-    NUMBER_LITERAL = auto()
-    STRING_LITERAL = auto()
+    PUNCTUATION = auto()

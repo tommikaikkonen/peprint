@@ -43,13 +43,14 @@ def pformat(object, indent=4, width=79, depth=None, *, compact=False):
     return stream.getvalue()
 
 
-def pprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False):
+def pprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False, end='\n'):
     # TODO: compact
     sdocs = python_to_sdocs(object, indent=indent, width=width, depth=depth)
     if stream is None:
         stream = sys.stdout
     default_render_to_stream(stream, sdocs)
-    stream.write('\n')
+    if end:
+        stream.write(end)
 
 
 try:
@@ -58,12 +59,23 @@ except ImportError:
     def cpprint(*args, **kwargs):
         raise ImportError("You need to install the 'colorful' package for colored output.")
 else:
-    def cpprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False):
+    def cpprint(
+        object,
+        stream=None,
+        indent=4,
+        width=79,
+        depth=None,
+        *,
+        compact=False,
+        style=None,
+        end='\n'
+    ):
         sdocs = python_to_sdocs(object, indent=indent, width=width, depth=depth)
         if stream is None:
             stream = sys.stdout
-        colored_render_to_stream(stream, sdocs)
-        stream.write('\n')
+        colored_render_to_stream(stream, sdocs, style=style)
+        if end:
+            stream.write(end)
 
 
 def install_to_ipython():
@@ -72,12 +84,22 @@ def install_to_ipython():
     except ImportError:
         return
 
+    try:
+        ipy = get_ipython()
+    except NameError:
+        return
+
     class IPythonCompatPrinter:
         def __init__(self, stream, *args, **kwargs):
             self.stream = stream
 
         def pretty(self, obj):
-            cpprint(obj, stream=self.stream)
+            style = ipy.highlighting_style
+            if style == 'legacy':
+                # Fall back to default
+                style = None
+
+            cpprint(obj, stream=self.stream, style=style, end=None)
 
         def flush(self):
             pass

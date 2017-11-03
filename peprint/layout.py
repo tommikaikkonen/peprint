@@ -26,11 +26,11 @@ from .doc import (
     Contextual,
     FlatChoice,
     Fill,
-    Identity,
     Group,
     Nest,
     Text,
     normalize_doc,
+    WithMeta,
 )
 from .sdoc import (
     SLine,
@@ -78,7 +78,7 @@ def fast_fitting_predicate(
                 (indent, mode, doc)
                 for doc in reversed(doc.docs)
             )
-        elif isinstance(doc, Identity):
+        elif isinstance(doc, WithMeta):
             triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, Fill):
             triplestack.extend(
@@ -159,7 +159,7 @@ def smart_fitting_predicate(
                 (indent, mode, doc)
                 for doc in reversed(doc.docs)
             )
-        elif isinstance(doc, Identity):
+        elif isinstance(doc, WithMeta):
             triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, Fill):
             # Same as the Concat case.
@@ -227,18 +227,6 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
         if doc is NIL:
             # Nothing to do here.
             continue
-            
-        has_meta = getattr(doc, 'meta', None) is not None
-
-        if has_meta:
-            yield SMetaPush(doc.meta)
-            # Usually, the triplestack is solely a stack of docs.
-            # SMetaPop is a special case: when we find an annotated doc,
-            # we output the SMetaPush SDoc directly. The equivalent SMetaPop
-            # must be output after all the nested docs have been processed.
-            # An easy way to do this is to add the SMetaPop directly to the
-            # stack and output it when we see it.
-            triplestack.append((indent, mode, SMetaPop(doc.meta)))
 
         if doc is HARDLINE:
             yield SLine(indent)
@@ -265,6 +253,16 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
                 ribbon_width=ribbon_width,
             )
             triplestack.append((indent, mode, evaluated_doc))
+        elif isinstance(doc, WithMeta):
+            yield SMetaPush(doc.meta)
+            # Usually, the triplestack is solely a stack of docs.
+            # SMetaPop is a special case: when we find an annotated doc,
+            # we output the SMetaPush SDoc directly. The equivalent SMetaPop
+            # must be output after all the nested docs have been processed.
+            # An easy way to do this is to add the SMetaPop directly to the
+            # stack and output it when we see it.
+            triplestack.append((indent, mode, SMetaPop(doc.meta)))
+            triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, FlatChoice):
             if mode is BREAK_MODE:
                 triplestack.append((indent, mode, doc.when_broken))
@@ -272,8 +270,6 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
                 triplestack.append((indent, mode, doc.when_flat))
             else:
                 raise ValueError
-        elif isinstance(doc, Identity):
-            triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, Nest):
             # Increase indentation and process the nested doc.
             triplestack.append((indent + doc.indent, mode, doc.doc))
@@ -379,9 +375,6 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
             yield doc
         else:
             raise ValueError((indent, mode, doc))
-
-        if has_meta:
-            yield SMetaPop
 
 
 def layout_smart(doc, width=79, ribbon_frac=0.9):

@@ -5,10 +5,10 @@ from .doc import (
     Doc,
     FlatChoice,
     Fill,
-    Identity,
     Group,
     Nest,
     Text,
+    WithMeta,
     NIL,
     LINE,
     SOFTLINE,
@@ -17,10 +17,8 @@ from .doc import (
 from .utils import intersperse
 
 
-def text(x, *, meta=None):
-    if meta is None:
-        return x
-    return Text(x, meta=meta)
+def text(x):
+    return x
 
 
 def cast_doc(doc):
@@ -34,60 +32,60 @@ def cast_doc(doc):
     raise ValueError(doc)
 
 
-def group(x, *, meta=None):
-    return Group(x, meta=meta)
+def group(x):
+    return Group(x)
 
 
-def concat(xs, *, meta=None):
+def concat(xs):
     xs = list(xs)
     if not xs:
         return NIL
     elif len(xs) == 1:
         return xs[0]
-    return Concat([cast_doc(x) for x in xs], meta=meta)
+    return Concat([cast_doc(x) for x in xs])
 
 
 def with_meta(meta, doc):
-    return Identity(doc, meta=meta)
+    return WithMeta(doc, meta)
 
 
-def contextual(fn, *, meta=None):
-    return Contextual(fn, meta=meta)
+def contextual(fn):
+    return Contextual(fn)
 
 
-def align(doc, *, meta=None):
+def align(doc):
     def evaluator(indent, column, page_width, ribbon_width):
         return Nest(column - indent, doc)
-    return contextual(evaluator, meta=meta)
+    return contextual(evaluator)
 
 
-def hang(i, doc, *, meta=None):
-    return align(Nest(i, doc), meta=meta)
+def hang(i, doc):
+    return align(Nest(i, doc))
 
 
-def nest(i, doc, *, meta=None):
-    return Nest(i, doc, meta=meta)
+def nest(i, doc):
+    return Nest(i, doc)
 
 
-def hsep(docs, *, meta=None):
-    return concat(intersperse(' ', docs), meta=meta)
+def hsep(docs):
+    return concat(intersperse(' ', docs))
 
 
-def vsep(docs, *, meta=None):
-    return concat(intersperse(LINE, docs), meta=meta)
+def vsep(docs):
+    return concat(intersperse(LINE, docs))
 
 
-def fillsep(docs, *, meta=None):
-    return Fill(intersperse(LINE, map(cast_doc, docs)), meta=meta)
+def fillsep(docs):
+    return Fill(intersperse(LINE, map(cast_doc, docs)))
 
 
-def fill(docs, *, meta=None):
-    return Fill(docs, meta=meta)
+def fill(docs):
+    return Fill(docs)
 
 
-def always_break(doc, *, meta=None):
-    return AlwaysBreak(doc, meta=meta)
+def always_break(doc):
+    return AlwaysBreak(doc)
 
 
-def flat_choice(when_broken, when_flat, *, meta=None):
-    return FlatChoice(when_broken, when_flat, meta=meta)
+def flat_choice(when_broken, when_flat):
+    return FlatChoice(when_broken, when_flat)

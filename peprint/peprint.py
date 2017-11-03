@@ -19,33 +19,33 @@ from .api import (
 )
 
 from .layout import layout_smart
-from .syntax import SyntaxIdentifier
+from .syntax import Token
 from .utils import intersperse
 
 
-COMMA = with_meta(SyntaxIdentifier.COMMA, ',')
-ELLIPSIS = with_meta(SyntaxIdentifier.ELLIPSIS, '...')
+COMMA = with_meta(Token.PUNCTUATION, ',')
+ELLIPSIS = with_meta(Token.PUNCTUATION, '...')
 
-LPAREN = with_meta(SyntaxIdentifier.PAREN, '(')
-RPAREN = with_meta(SyntaxIdentifier.PAREN, ')')
+LPAREN = with_meta(Token.PUNCTUATION, '(')
+RPAREN = with_meta(Token.PUNCTUATION, ')')
 
-LBRACKET = with_meta(SyntaxIdentifier.BRACKET, '[')
-RBRACKET = with_meta(SyntaxIdentifier.BRACKET, ']')
+LBRACKET = with_meta(Token.PUNCTUATION, '[')
+RBRACKET = with_meta(Token.PUNCTUATION, ']')
 
-LBRACE = with_meta(SyntaxIdentifier.BRACE, '{')
-RBRACE = with_meta(SyntaxIdentifier.BRACE, '}')
+LBRACE = with_meta(Token.PUNCTUATION, '{')
+RBRACE = with_meta(Token.PUNCTUATION, '}')
 
-NEG_OP = with_meta(SyntaxIdentifier.OPERATOR, '-')
-MUL_OP = with_meta(SyntaxIdentifier.OPERATOR, '*')
-ADD_OP = with_meta(SyntaxIdentifier.OPERATOR, '+')
+NEG_OP = with_meta(Token.OPERATOR, '-')
+MUL_OP = with_meta(Token.OPERATOR, '*')
+ADD_OP = with_meta(Token.OPERATOR, '+')
 
 
 def builtin_identifier(s):
-    return with_meta(SyntaxIdentifier.IDENTIFIER_BUILTIN, s)
+    return with_meta(Token.NAME_BUILTIN, s)
 
 
 def identifier(s):
-    return with_meta(SyntaxIdentifier.IDENTIFIER, s)
+    return with_meta(Token.NAME_FUNCTION, s)
 
 
 def general_identifier(s):
@@ -163,7 +163,7 @@ def fncall(fndoc, argdocs=(), kwargdocs=(), ctx=None):
         concat([
             binding,
             with_meta(
-                SyntaxIdentifier.KWARG_ASSIGN,
+                Token.OPERATOR,
                 '='
             ),
             doc
@@ -187,15 +187,12 @@ def fncall(fndoc, argdocs=(), kwargdocs=(), ctx=None):
                 concat([
                     LPAREN,
                     SOFTLINE,
-                    with_meta(
-                        SyntaxIdentifier.ARGUMENTS,
-                        concat(
-                            intersperse(
-                                argsep,
-                                allarg_docs
-                            )
-                        ),
-                    )
+                    concat(
+                        intersperse(
+                            argsep,
+                            allarg_docs
+                        )
+                    ),
                 ])
             ),
             SOFTLINE,
@@ -354,14 +351,14 @@ def pretty_float(value, ctx):
     elif math.isnan(value):
         return pycall(ctx, float, 'nan')
 
-    return with_meta(SyntaxIdentifier.NUMBER_LITERAL, repr(value))
+    return with_meta(Token.NUMBER_FLOAT, repr(value))
 
 
 @register_pretty(int)
 def pretty_int(value, ctx):
     if ctx.depth_left == 0:
         return pycall(ctx, int, ...)
-    return with_meta(SyntaxIdentifier.NUMBER_LITERAL, repr(value))
+    return with_meta(Token.NUMBER_INT, repr(value))
 
 
 @register_pretty(type(...))
@@ -372,7 +369,7 @@ def pretty_ellipsis(value, ctx):
 @register_pretty(bool)
 @register_pretty(type(None))
 def pretty_singletons(value, ctx):
-    return with_meta(SyntaxIdentifier.SINGLETONS, repr(value))
+    return with_meta(Token.KEYWORD_CONSTANT, repr(value))
 
 
 SINGLE_QUOTE_TEXT = "'"
@@ -443,7 +440,7 @@ def escape_str_for_quote(use_quote, s):
 
 def pretty_single_line_str(s, indent, use_quote=None):
     prefix = (
-        with_meta(SyntaxIdentifier.PREFIX, 'b')
+        with_meta(Token.STRING_AFFIX, 'b')
         if isinstance(s, bytes)
         else ''
     )
@@ -454,7 +451,7 @@ def pretty_single_line_str(s, indent, use_quote=None):
     return concat([
         prefix,
         with_meta(
-            SyntaxIdentifier.STRING_LITERAL,
+            Token.LITERAL_STRING,
             concat([
                 use_quote,
                 escape_str_for_quote(use_quote, s),

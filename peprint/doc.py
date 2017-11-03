@@ -21,19 +21,16 @@ def is_doc(doc):
 
 
 class Doc:
-    __slots__ = ('meta', )
-
-    def __init__(self, meta=None):
-        self.meta = meta
+    __slots__ = ()
 
     def normalize(self):
         return self
 
 
-class Identity(Doc):
-    __slots__ = 'doc'
+class WithMeta(Doc):
+    __slots__ = ('doc', 'meta')
 
-    def __init__(self, doc, meta=None):
+    def __init__(self, doc, meta):
         self.doc = doc
         self.meta = meta
 
@@ -49,9 +46,8 @@ class Identity(Doc):
 class Text(Doc):
     __slots__ = ('value', )
 
-    def __init__(self, value, meta=None):
+    def __init__(self, value):
         validate_type(str)(self, 'value', value)
-        super().__init__(meta)
         self.value = value
 
     def __repr__(self):
@@ -69,9 +65,8 @@ NIL = Nil()
 class Concat(Doc):
     __slots__ = ('docs', )
 
-    def __init__(self, docs, meta=None):
+    def __init__(self, docs):
         self.docs = docs
-        super().__init__(meta)
 
     def normalize(self):
         normalized_docs = []
@@ -98,13 +93,12 @@ class Concat(Doc):
 class Nest(Doc):
     __slots__ = ('indent', 'doc')
 
-    def __init__(self, indent, doc, meta=None):
+    def __init__(self, indent, doc):
         assert isinstance(indent, int)
         assert isinstance(doc, Doc)
 
         self.indent = indent
         self.doc = doc
-        super().__init__(meta)
 
     def normalize(self):
         inner_normalized = normalize_doc(self.doc)
@@ -121,10 +115,9 @@ class Nest(Doc):
 class FlatChoice(Doc):
     __slots__ = ('when_broken', 'when_flat')
 
-    def __init__(self, when_broken, when_flat, meta=None):
+    def __init__(self, when_broken, when_flat):
         self.when_broken = when_broken
         self.when_flat = when_flat
-        super().__init__(meta)
 
     def normalize(self):
         broken_normalized = normalize_doc(self.when_broken)
@@ -150,9 +143,8 @@ class FlatChoice(Doc):
 class Contextual(Doc):
     __slots__ = ('fn', )
 
-    def __init__(self, fn, meta=None):
+    def __init__(self, fn):
         self.fn = fn
-        super().__init__(meta)
 
     def __repr__(self):
         return f'Contextual({repr(self.fn)})'
@@ -171,10 +163,9 @@ SOFTLINE = FlatChoice(HARDLINE, NIL)
 class Group(Doc):
     __slots__ = ('doc', )
 
-    def __init__(self, doc, meta=None):
+    def __init__(self, doc):
         assert isinstance(doc, Doc)
         self.doc = doc
-        super().__init__(meta)
 
     def normalize(self):
         doc_normalized = normalize_doc(self.doc)
@@ -192,10 +183,9 @@ class Group(Doc):
 class AlwaysBreak(Doc):
     __slots__ = ('doc', )
 
-    def __init__(self, doc, meta=None):
+    def __init__(self, doc):
         assert isinstance(doc, Doc)
         self.doc = doc
-        super().__init__(meta)
 
     def normalize(self):
         doc_normalized = normalize_doc(self.doc)
@@ -210,12 +200,11 @@ class AlwaysBreak(Doc):
 class Fill(Doc):
     __slots__ = ('docs', )
 
-    def __init__(self, docs, meta=None):
+    def __init__(self, docs):
         self.docs = list(docs)
-        super().__init__(meta)
 
     def normalize(self):
-        return Fill([normalize_doc(doc) for doc in self.docs], meta=self.meta)
+        return Fill([normalize_doc(doc) for doc in self.docs])
 
     def __repr__(self):
         return f"Fill([{', '.join(repr(doc) for doc in self.docs)}])"
