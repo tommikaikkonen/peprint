@@ -1,13 +1,3 @@
-
-def validate_type(_type):
-    def validator(inst, attr, value):
-        if not isinstance(value, _type):
-            raise TypeError(
-                f'Got {repr(value)} of type {type(value).__name__}, expected {_type.__name__}'
-            )
-    return validator
-
-
 def normalize_doc(doc):
     if isinstance(doc, str):
         return doc
@@ -47,7 +37,11 @@ class Text(Doc):
     __slots__ = ('value', )
 
     def __init__(self, value):
-        validate_type(str)(self, 'value', value)
+        if not isinstance(value, str):
+            raise TypeError(
+                f"Got {repr(value)} of type {type(value).__name__}, "
+                "expected 'str'"
+            )
         self.value = value
 
     def __repr__(self):
