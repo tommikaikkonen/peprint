@@ -1,4 +1,4 @@
-Welcome to peprint's documentation!
+peprint
 ======================================
 
 Contents:

@@ -2,14 +2,17 @@
 
 Drop in replacement for pprint with prettier, opinionated (but PEP8 compliant) output.
 
-Instead of 
+Instead of::
 
-```python
-from pprint import pprint
-```
+    from pprint import pprint
 
-do
+do::
 
-```python
-from peprint import pprint
-```
+    from peprint import pprint
+
+Or to use with IPython, add these two lines to your startup file::
+
+    from peprint import install_to_ipython
+    install_to_ipython()
+
+Packages ``colorful`` and ``pygments`` need to be installed to use ``peprint`` with ``IPython``.
