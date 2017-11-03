@@ -24,6 +24,7 @@ from .utils import intersperse
 
 
 COMMA = with_meta(Token.PUNCTUATION, ',')
+COLON = with_meta(Token.PUNCTUATION, ':')
 ELLIPSIS = with_meta(Token.PUNCTUATION, '...')
 
 LPAREN = with_meta(Token.PUNCTUATION, '(')
@@ -281,7 +282,7 @@ class _AlwaysSortable(object):
 @register_pretty(dict)
 def pretty_dict(d, ctx):
     if ctx.depth_left == 0:
-        return '{...}'
+        return concat([LBRACE, ELLIPSIS, RBRACE])
     pairs = []
     for k in sorted(d.keys(), key=_AlwaysSortable):
         v = d[k]
@@ -317,7 +318,7 @@ def pretty_dict(d, ctx):
         group(
             concat([
                 kdoc,
-                ': ',
+                concat([COLON, ' ']),
                 vdoc
             ]),
         )
@@ -592,10 +593,10 @@ def pretty_str(
 ):
     if ctx.depth_left == 0:
         if isinstance(s, str):
-            return 'str(...)'
+            return pycall(ctx, str, ...)
         else:
             assert isinstance(s, bytes)
-            return 'bytes(...)'
+            return pycall(ctx, bytes, ...)
 
     peprint_indent = ctx.indent
 
@@ -647,7 +648,7 @@ def pretty_str(
             )
         else:
             if multiline_strategy == MULTILINE_STATEGY_PARENS:
-                left_paren, right_paren = '(', ')'
+                left_paren, right_paren = LPAREN, RPAREN
             else:
                 assert multiline_strategy == MULTILINE_STATEGY_INDENTED
                 left_paren, right_paren = '', ''
@@ -693,8 +694,6 @@ def pretty_datetime(dt, ctx):
     )
 
     kwargdocs = [
-        # by returning a repr str instead of calling
-        # pretty_python_value
         (
             k,
             pretty_python_value(v, ctx.nested_call())
@@ -712,7 +711,7 @@ def pretty_datetime(dt, ctx):
         )
 
     if dt.fold:
-        kwargdocs.append(('fold', '1'))
+        kwargdocs.append(('fold', pretty_python_value(1, ctx=ctx)))
 
     if len(kwargdocs) == 3:  # year, month, day
         return pycall(
