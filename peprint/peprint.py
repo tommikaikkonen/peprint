@@ -1,5 +1,6 @@
 import math
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 from functools import singledispatch, partial
 from itertools import chain, cycle, dropwhile
@@ -334,6 +335,11 @@ def pretty_dict(d, ctx):
     )
 
     return res
+
+
+@register_pretty(Counter)
+def pretty_counter(counter, ctx):
+    return pycall(ctx, Counter, dict(counter))
 
 
 INF_FLOAT = float('inf')
