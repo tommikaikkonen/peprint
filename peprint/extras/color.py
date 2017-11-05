@@ -1,10 +1,11 @@
 from ..sdoc import (
-    SText,
     SLine,
     SMetaPush,
     SMetaPop,
 )
 from ..syntax import Token
+from ..render import as_lines
+from ..utils import rfind_idx
 
 _COLOR_DEPS_INSTALLED = True
 try:
@@ -27,6 +28,7 @@ else:
         Token.NUMBER_FLOAT: token.Number.Float,
         Token.OPERATOR: token.Operator,
         Token.PUNCTUATION: token.Punctuation,
+        Token.COMMENT_SINGLE: token.Comment.Single,
     }
 
     default_style = styles.get_style_by_name('monokai')
@@ -71,33 +73,50 @@ def colored_render_to_stream(stream, sdocs, style, newline='\n', separator=' '):
 
     evald = list(sdocs)
 
+    if not evald:
+        return
+
     colorstack = []
 
-    for sdoc in evald:
-        if isinstance(sdoc, str):
-            stream.write(sdoc)
-        elif isinstance(sdoc, SText):
-            stream.write(sdoc.value)
-        elif isinstance(sdoc, SLine):
-            stream.write(newline + separator * sdoc.indent)
-        elif isinstance(sdoc, SMetaPush):
-            if isinstance(sdoc.value, Token):
-                pygments_token = _SYNTAX_TOKEN_TO_PYGMENTS_TOKEN[sdoc.value]
-                tokenattrs = style.style_for_token(pygments_token)
-                color = styleattrs_to_colorful(tokenattrs)
-                colorstack.append(color)
-                stream.write(str(color))
+    sdoc_lines = as_lines(evald)
 
-        elif isinstance(sdoc, SMetaPop):
-            try:
-                colorstack.pop()
-            except IndexError:
-                continue
+    for sdoc_line in sdoc_lines:
+        last_text_sdoc_idx = rfind_idx(
+            lambda sdoc: isinstance(sdoc, str),
+            sdoc_line
+        )
 
-            if colorstack:
-                stream.write(str(colorstack[-1]))
-            else:
-                stream.write(str(colorful.reset))
+        # Edge case: trailing whitespace on a line.
+        # Currently happens on multiline str value in a dict:
+        # there's a trailing whitespace after the colon that's
+        # hard to eliminate at the doc level.
+        if last_text_sdoc_idx != -1:
+            last_text_sdoc = sdoc_line[last_text_sdoc_idx]
+            sdoc_line[last_text_sdoc_idx] = last_text_sdoc.rstrip()
+
+        for sdoc in sdoc_line:
+            if isinstance(sdoc, str):
+                stream.write(sdoc)
+            elif isinstance(sdoc, SLine):
+                stream.write(newline + separator * sdoc.indent)
+            elif isinstance(sdoc, SMetaPush):
+                if isinstance(sdoc.value, Token):
+                    pygments_token = _SYNTAX_TOKEN_TO_PYGMENTS_TOKEN[sdoc.value]
+                    tokenattrs = style.style_for_token(pygments_token)
+                    color = styleattrs_to_colorful(tokenattrs)
+                    colorstack.append(color)
+                    stream.write(str(color))
+
+            elif isinstance(sdoc, SMetaPop):
+                try:
+                    colorstack.pop()
+                except IndexError:
+                    continue
+
+                if colorstack:
+                    stream.write(str(colorstack[-1]))
+                else:
+                    stream.write(str(colorful.reset))
 
     if colorstack:
         stream.write(str(colorful.reset))

@@ -30,7 +30,7 @@ class WithMeta(Doc):
         return self
 
     def __repr__(self):
-        return f'Identity({repr(self.doc)})'
+        return f'WithMeta({repr(self.doc)})'
 
 
 class Text(Doc):

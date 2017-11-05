@@ -35,17 +35,47 @@ class PrettyPrinter:
         raise NotImplementedError
 
 
-def pformat(object, indent=4, width=79, depth=None, *, compact=False):
+def pformat(
+    object,
+    indent=4,
+    width=79,
+    depth=None,
+    *,
+    ribbon_width=71,
+    compact=False
+):
     # TODO: compact
-    sdocs = python_to_sdocs(object, indent=indent, width=width, depth=depth)
+    sdocs = python_to_sdocs(
+        object,
+        indent=indent,
+        width=width,
+        depth=depth,
+        ribbon_width=ribbon_width,
+    )
     stream = StringIO()
     default_render_to_stream(stream, sdocs)
     return stream.getvalue()
 
 
-def pprint(object, stream=None, indent=4, width=79, depth=None, *, compact=False, end='\n'):
+def pprint(
+    object,
+    stream=None,
+    indent=4,
+    width=79,
+    depth=None,
+    *,
+    compact=False,
+    ribbon_width=71,
+    end='\n'
+):
     # TODO: compact
-    sdocs = python_to_sdocs(object, indent=indent, width=width, depth=depth)
+    sdocs = python_to_sdocs(
+        object,
+        indent=indent,
+        width=width,
+        depth=depth,
+        ribbon_width=ribbon_width,
+    )
     if stream is None:
         stream = sys.stdout
     default_render_to_stream(stream, sdocs)
@@ -67,10 +97,17 @@ else:
         depth=None,
         *,
         compact=False,
+        ribbon_width=71,
         style=None,
         end='\n'
     ):
-        sdocs = python_to_sdocs(object, indent=indent, width=width, depth=depth)
+        sdocs = python_to_sdocs(
+            object,
+            indent=indent,
+            width=width,
+            depth=depth,
+            ribbon_width=ribbon_width
+        )
         if stream is None:
             stream = sys.stdout
         colored_render_to_stream(stream, sdocs, style=style)
@@ -78,30 +115,7 @@ else:
             stream.write(end)
 
 
+# TODO: deprecate
 def install_to_ipython():
-    try:
-        import IPython.lib.pretty
-    except ImportError:
-        return
-
-    try:
-        ipy = get_ipython()
-    except NameError:
-        return
-
-    class IPythonCompatPrinter:
-        def __init__(self, stream, *args, **kwargs):
-            self.stream = stream
-
-        def pretty(self, obj):
-            style = ipy.highlighting_style
-            if style == 'legacy':
-                # Fall back to default
-                style = None
-
-            cpprint(obj, stream=self.stream, style=style, end=None)
-
-        def flush(self):
-            pass
-
-    IPython.lib.pretty.RepresentationPrinter = IPythonCompatPrinter
+    from .extras import ipython
+    ipython.install()

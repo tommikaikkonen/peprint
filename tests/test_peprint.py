@@ -32,67 +32,58 @@ from peprint.render import default_render_to_str
 from peprint.layout import layout_smart
 
 
-def test_content():
-    pprint([i for i in range(10)])
-    val = {
-        'yas': True,
-        'okay': {
-            'que': 1,
-            'wut': "yeasdfweafsfwefmkvamkwmfaldkfmalkemlfaksmdlkamlskmalwkemlakmdflkamwlekfm asdf kmwe amwkdfm awlefk masdfkl awe ",
-            'wyd': True,
-        },
-    }
-    pprint(val, width=79)
-    nativepprint(val, width=79)
-
-    val = [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        1,
-        2,
-        3,
-        {'a': 2, 'b': 3}
-    ]
-    pprint(val)
-    nativepprint(val)
-
-    pprint(('kewlio', ))
-    nativepprint(('kewlio', ))
-
-    pprint("asdfom ad fwekrj asdf jwerakjsdfna wr nasfj akwer akjsdf jlkawjer asf mnvaker nakjdfn kawe rkajdfn kajwenr awer asdf alwekr asdf aknwmen kawjern aisudfn kawek an")
-
-
 def test_align():
     doc = concat([
-        text('example '),
+        text('lorem '),
         align(
             concat([
-                'okay',
+                'ipsum',
                 HARDLINE,
                 'aligned!'
             ])
         )
     ])
-    print(default_render_to_str(layout_smart(doc)))
+
+    expected = """\
+lorem ipsum
+      aligned!"""
+
+    res = default_render_to_str(layout_smart(doc))
+    assert res == expected
 
 
 def test_fillsep():
-    doc = fillsep(islice(cycle(["lorem", "ipsum", "dolor", "sit", "amet"]), 50))
-    print(default_render_to_str(layout_smart(doc)))
+    doc = fillsep(
+        islice(
+            cycle(["lorem", "ipsum", "dolor", "sit", "amet"]),
+            20
+        )
+    )
+
+    expected = """\
+lorem ipsum dolor sit
+amet lorem ipsum dolor
+sit amet lorem ipsum
+dolor sit amet lorem
+ipsum dolor sit amet"""
+    res = default_render_to_str(layout_smart(doc, width=20))
+    assert res == expected
 
 
 def test_always_breaking():
+    """A dictionary value that is broken into multiple lines must
+    also break the whole dictionary to multiple lines."""
     data = {
-        'okay': ''.join(islice(cycle(['ab' * 20, ' ' * 3]), 10)),
+        'okay': ''.join(islice(cycle(['ab' * 20, ' ' * 3]), 3)),
     }
-    pprint(data)
+    expected = """\
+{
+    'okay':
+        'abababababababababababababababababababab   '
+        'abababababababababababababababababababab'
+}"""
+    res = pformat(data)
+    assert res == expected
 
 
 def test_pretty_json():
@@ -105,6 +96,7 @@ def test_pretty_json():
     cpprint(data)
 
 
+@pytest.mark.skip(reason="unskip to run performance test")
 def test_perf():
     with open('tests/sample_json.json') as f:
         data = json.load(f)
@@ -147,7 +139,9 @@ def primitives():
         st.text() |
         st.binary() |
         st.datetimes() |
-        st.timedeltas()
+        st.timedeltas() |
+        st.booleans() |
+        st.just(None)
     )
 
 
@@ -206,7 +200,7 @@ def test_all_python_values(value):
     cpprint(value)
 
 
-@settings(max_examples=5000, max_iterations=5000)
+@settings(max_examples=500, max_iterations=500)
 @given(st.binary())
 def test_bytes_pprint_equals_repr(bytestr):
     reprd = repr(bytestr)
@@ -226,7 +220,7 @@ def test_bytes_pprint_equals_repr(bytestr):
         assert pformat(bytestr) == repr(bytestr)
 
 
-@settings(max_examples=5000, max_iterations=5000)
+@settings(max_examples=500, max_iterations=500)
 @given(containers(primitives()))
 def test_readable(value):
     formatted = pformat(value)
@@ -260,13 +254,27 @@ def test_top_level_str():
 
 def test_second_level_str():
     """Test that second level strs are indented"""
-    pprint({'ab' * 50: 'cd' * 100})
     expected = """\
 [
     'ababababababababababababababababababababababababababababababababababa'
+        'bababababababababababababababab',
+    'ababababababababababababababababababababababababababababababababababa'
         'bababababababababababababababab'
 ]"""
-    assert pformat(['ab' * 50]) == expected
+    res = pformat(['ab' * 50] * 2)
+    assert res == expected
+
+
+def test_single_element_sequence_multiline_strategy():
+    """Test that sequences with a single str-like element are not hang-indented
+    in multiline mode."""
+    expected = """\
+[
+    'ababababababababababababababababababababababababababababababababababa'
+    'bababababababababababababababab'
+]"""
+    res = pformat(['ab' * 50])
+    assert res == expected
 
 
 def test_many_cases():

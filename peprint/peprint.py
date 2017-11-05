@@ -1,16 +1,16 @@
 import math
 import re
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo, timezone
 from functools import singledispatch, partial
 from itertools import chain, cycle, dropwhile
+from uuid import UUID
 
 from .api import (
     concat,
     contextual,
     nest,
     always_break,
-    flat_choice,
     group,
     with_meta,
     NIL,
@@ -23,6 +23,14 @@ from .layout import layout_smart
 from .syntax import Token
 from .utils import intersperse
 
+try:
+    import pytz
+except ImportError:
+    _PYTZ_INSTALLED = False
+else:
+    _PYTZ_INSTALLED = True
+
+UNSET_SENTINEL = object()
 
 COMMA = with_meta(Token.PUNCTUATION, ',')
 COLON = with_meta(Token.PUNCTUATION, ':')
@@ -40,6 +48,37 @@ RBRACE = with_meta(Token.PUNCTUATION, '}')
 NEG_OP = with_meta(Token.OPERATOR, '-')
 MUL_OP = with_meta(Token.OPERATOR, '*')
 ADD_OP = with_meta(Token.OPERATOR, '+')
+
+
+# For dict keys
+"""
+(
+    'aaaaaaaaaa'
+    'aaaaaa'
+)
+"""
+MULTILINE_STATEGY_PARENS = 'MULTILINE_STATEGY_PARENS'
+
+# For dict values
+"""
+    'aaaaaaaaaa'
+    'aaaaa'
+"""
+MULTILINE_STATEGY_INDENTED = 'MULTILINE_STATEGY_INDENTED'
+
+# For sequence elements
+"""
+'aaaaaaaaa'
+    'aaaaaa'
+"""
+MULTILINE_STATEGY_HANG = 'MULTILINE_STATEGY_HANG'
+
+# For top level strs
+"""
+'aaaaaaaaa'
+'aaaaaa'
+"""
+MULTILINE_STATEGY_PLAIN = 'MULTILINE_STATEGY_PLAIN'
 
 
 def builtin_identifier(s):
@@ -61,19 +100,64 @@ def general_identifier(s):
 
 
 class PrettyContext:
-    def __init__(self, indent, depth_left, visited=None):
+    __slots__ = (
+        'indent',
+        'depth_left',
+        'visited',
+        'multiline_strategy',
+        'user_ctx'
+    )
+
+    def __init__(
+        self,
+        indent,
+        depth_left,
+        visited=None,
+        multiline_strategy=MULTILINE_STATEGY_PLAIN,
+        user_ctx=None,
+    ):
         self.indent = indent
         self.depth_left = depth_left
+        self.multiline_strategy = multiline_strategy
+
         if visited is None:
             visited = set()
         self.visited = visited
 
-    def nested_call(self):
+        if user_ctx is None:
+            user_ctx = {}
+
+        self.user_ctx = user_ctx
+
+    def _replace(self, **kwargs):
+        passed_keys = set(kwargs.keys())
+        fieldnames = type(self).__slots__
+        assert passed_keys.issubset(set(fieldnames))
         return PrettyContext(
-            indent=self.indent,
-            depth_left=self.depth_left - 1,
-            visited=self.visited
+            **{
+                k: (
+                    kwargs[k]
+                    if k in passed_keys
+                    else getattr(self, k)
+                )
+                for k in fieldnames
+            }
         )
+
+    def use_multiline_strategy(self, strategy):
+        return self._replace(multiline_strategy=strategy)
+
+    def set(self, key, value):
+        return self._replace(user_ctx={
+            **self.user_ctx,
+            key: value,
+        })
+
+    def get(self, key, default=None):
+        return self.user_ctx.get(key, default)
+
+    def nested_call(self):
+        return self._replace(depth_left=self.depth_left - 1)
 
     def start_visit(self, value):
         self.visited.add(id(value))
@@ -112,20 +196,35 @@ def register_pretty(_type):
     return decorator
 
 
-def bracket(left, child, right, indent, force_break=False,):
-    outer = always_break if force_break else group
-    return outer(
-        concat([
-            left,
-            nest(indent, concat([SOFTLINE, child])),
-            SOFTLINE,
-            right
-        ])
-    )
+def bracket(ctx, left, child, right):
+    return concat([
+        left,
+        nest(ctx.indent, concat([SOFTLINE, child])),
+        SOFTLINE,
+        right
+    ])
 
 
-def pycall(ctx, fn, *args, **kwargs):
+def comment(text):
+    return with_meta(Token.COMMENT_SINGLE, concat(['# ', text]))
+
+
+def sequence_of_docs(ctx, left, docs, right, dangle=False):
+    sep = concat([COMMA, LINE])
+    separated_els = intersperse(sep, docs)
+
+    if dangle:
+        separated_els = chain(separated_els, [COMMA])
+
+    return group(bracket(ctx, left, concat(separated_els), right))
+
+
+def prettycall(ctx, fn, *args, **kwargs):
     fndoc = general_identifier(fn)
+
+    if ctx.depth_left <= 0:
+        return concat([fndoc, LPAREN, ELLIPSIS, RPAREN])
+
     if not kwargs and len(args) == 1:
         sole_arg = args[0]
         if isinstance(sole_arg, (list, dict, tuple)):
@@ -138,24 +237,27 @@ def pycall(ctx, fn, *args, **kwargs):
                 ])
             )
 
-    return fncall(
+    nested_ctx = (
+        ctx
+        .nested_call()
+        .use_multiline_strategy(MULTILINE_STATEGY_HANG)
+    )
+
+    return build_fncall(
+        ctx,
         fndoc,
         argdocs=(
-            pretty_python_value(arg, ctx)
+            pretty_python_value(arg, nested_ctx)
             for arg in args
         ),
         kwargdocs=(
-            (kwarg, pretty_python_value(v, ctx))
+            (kwarg, pretty_python_value(v, nested_ctx))
             for kwarg, v in kwargs.items()
         ),
-        ctx=ctx
     )
 
 
-def fncall(fndoc, argdocs=(), kwargdocs=(), ctx=None):
-    if ctx is None:
-        raise ValueError
-
+def build_fncall(ctx, fndoc, argdocs=(), kwargdocs=()):
     if callable(fndoc):
         fndoc = general_identifier(fndoc)
 
@@ -222,46 +324,44 @@ def pretty_bracketable_iterable(value, ctx):
             return concat([left, right])
         else:
             assert isinstance(value, set)
-            return pycall(ctx, set)
+            return prettycall(ctx, set)
 
     if ctx.depth_left == 0:
         return concat([left, ELLIPSIS, right])
 
-    sep = concat([COMMA, LINE])
-    els = (
-        (
-            pretty_str(
-                el,
-                ctx=ctx.nested_call(),
-                multiline_strategy=MULTILINE_STATEGY_HANG,
+    if len(value) == 1:
+        sole_value = list(value)[0]
+        els = [
+            pretty_python_value(
+                sole_value,
+                ctx=(
+                    ctx
+                    .nested_call()
+                    .use_multiline_strategy(MULTILINE_STATEGY_PLAIN)
+                )
             )
-            if isinstance(el, (str, bytes))
-            else pretty_python_value(
+        ]
+    else:
+        els = (
+            pretty_python_value(
                 el,
-                ctx.nested_call()
+                ctx=(
+                    ctx
+                    .nested_call()
+                    .use_multiline_strategy(MULTILINE_STATEGY_HANG)
+                )
             )
+            for el in value
         )
-        for el in value
-    )
 
-    separated_els = intersperse(sep, els)
-
-    if dangle:
-        separated_els = chain(separated_els, [COMMA])
-
-    return bracket(
-        left,
-        concat(separated_els),
-        right,
-        indent=ctx.indent
-    )
+    return sequence_of_docs(ctx, left, els, right, dangle=dangle)
 
 
 @register_pretty(frozenset)
 def pretty_frozenset(value, ctx):
     if value:
-        return pycall(ctx, frozenset, list(value))
-    return pycall(ctx, frozenset)
+        return prettycall(ctx, frozenset, list(value))
+    return prettycall(ctx, frozenset)
 
 
 class _AlwaysSortable(object):
@@ -291,8 +391,8 @@ def pretty_dict(d, ctx):
         if isinstance(k, (str, bytes)):
             kdoc = pretty_str(
                 k,
-                ctx=ctx,  # not a nested call on purpose
-                multiline_strategy=MULTILINE_STATEGY_PARENS,
+                # not a nested call on purpose
+                ctx=ctx.use_multiline_strategy(MULTILINE_STATEGY_PARENS),
             )
         else:
             kdoc = pretty_python_value(
@@ -300,17 +400,14 @@ def pretty_dict(d, ctx):
                 ctx=ctx.nested_call()
             )
 
-        if isinstance(v, (str, bytes)):
-            vdoc = pretty_str(
-                v,
-                ctx=ctx.nested_call(),
-                multiline_strategy=MULTILINE_STATEGY_INDENTED,
-            )
-        else:
-            vdoc = pretty_python_value(
-                v,
-                ctx=ctx.nested_call()
-            )
+        vdoc = pretty_python_value(
+            v,
+            ctx=(
+                ctx
+                .nested_call()
+                .use_multiline_strategy(MULTILINE_STATEGY_INDENTED)
+            ),
+        )
         pairs.append((kdoc, vdoc))
 
     pairsep = concat([COMMA, LINE])
@@ -326,20 +423,24 @@ def pretty_dict(d, ctx):
         for kdoc, vdoc in pairs
     )
 
-    res = bracket(
+    doc = bracket(
+        ctx,
         LBRACE,
         concat(intersperse(pairsep, pairdocs)),
         RBRACE,
-        indent=ctx.indent,
-        force_break=len(pairs) > 2,
     )
 
-    return res
+    if len(pairs) > 2:
+        doc = always_break(doc)
+    else:
+        doc = group(doc)
+
+    return doc
 
 
 @register_pretty(Counter)
 def pretty_counter(counter, ctx):
-    return pycall(ctx, Counter, dict(counter))
+    return prettycall(ctx, Counter, dict(counter))
 
 
 INF_FLOAT = float('inf')
@@ -349,14 +450,14 @@ NEG_INF_FLOAT = float('-inf')
 @register_pretty(float)
 def pretty_float(value, ctx):
     if ctx.depth_left == 0:
-        return pycall(ctx, float, ...)
+        return prettycall(ctx, float, ...)
 
     if value == INF_FLOAT:
-        return pycall(ctx, float, 'inf')
+        return prettycall(ctx, float, 'inf')
     elif value == NEG_INF_FLOAT:
-        return pycall(ctx, float, '-inf')
+        return prettycall(ctx, float, '-inf')
     elif math.isnan(value):
-        return pycall(ctx, float, 'nan')
+        return prettycall(ctx, float, 'nan')
 
     return with_meta(Token.NUMBER_FLOAT, repr(value))
 
@@ -364,7 +465,7 @@ def pretty_float(value, ctx):
 @register_pretty(int)
 def pretty_int(value, ctx):
     if ctx.depth_left == 0:
-        return pycall(ctx, int, ...)
+        return prettycall(ctx, int, ...)
     return with_meta(Token.NUMBER_INT, repr(value))
 
 
@@ -558,52 +659,17 @@ def str_to_lines(max_len, use_quote, s):
         yield empty.join(curr_line_parts)
 
 
-
-# For dict keys
-"""
-(
-    'aaaaaaaaaa'
-    'aaaaaa'
-)
-"""
-MULTILINE_STATEGY_PARENS = 'MULTILINE_STATEGY_PARENS'
-
-# For dict values
-"""
-    'aaaaaaaaaa'
-    'aaaaa'
-"""
-MULTILINE_STATEGY_INDENTED = 'MULTILINE_STATEGY_INDENTED'
-
-# For sequence elements
-"""
-'aaaaaaaaa'
-    'aaaaaa'
-"""
-MULTILINE_STATEGY_HANG = 'MULTILINE_STATEGY_HANG'
-
-# For top level strs
-"""
-'aaaaaaaaa'
-'aaaaaa'
-"""
-MULTILINE_STATEGY_PLAIN = 'MULTILINE_STATEGY_PLAIN'
-
-
 @register_pretty(str)
 @register_pretty(bytes)
-def pretty_str(
-    s,
-    ctx,
-    multiline_strategy=MULTILINE_STATEGY_PLAIN,
-):
+def pretty_str(s, ctx):
     if ctx.depth_left == 0:
         if isinstance(s, str):
-            return pycall(ctx, str, ...)
+            return prettycall(ctx, str, ...)
         else:
             assert isinstance(s, bytes)
-            return pycall(ctx, bytes, ...)
+            return prettycall(ctx, bytes, ...)
 
+    multiline_strategy = ctx.multiline_strategy
     peprint_indent = ctx.indent
 
     def evaluator(indent, column, page_width, ribbon_width):
@@ -669,12 +735,21 @@ def pretty_str(
                             *parts,
                         ])
                     ),
-                    HARDLINE,
+                    (
+                        HARDLINE
+                        if multiline_strategy == MULTILINE_STATEGY_PARENS
+                        else NIL
+                    ),
                     right_paren
                 ])
             )
 
     return contextual(evaluator)
+
+
+@register_pretty(UUID)
+def pretty_uuid(value, ctx):
+    return prettycall(ctx, UUID, str(value))
 
 
 @register_pretty(datetime)
@@ -720,7 +795,7 @@ def pretty_datetime(dt, ctx):
         kwargdocs.append(('fold', pretty_python_value(1, ctx=ctx)))
 
     if len(kwargdocs) == 3:  # year, month, day
-        return pycall(
+        return prettycall(
             ctx,
             datetime,
             dt.year,
@@ -729,18 +804,46 @@ def pretty_datetime(dt, ctx):
         )
 
     return group(
-        fncall(
+        build_fncall(
+            ctx,
             datetime,
             kwargdocs=kwargdocs,
-            ctx=ctx
         )
     )
+
+
+@register_pretty(tzinfo)
+def pretty_tzinfo(value, ctx):
+    if value == timezone.utc:
+        return identifier('datetime.timezone.utc')
+    elif _PYTZ_INSTALLED and value == pytz.utc:
+        return identifier('pytz.utc')
+
+
+@register_pretty(timezone)
+def pretty_timezone(tz, ctx):
+    if tz == timezone.utc:
+        return identifier('datetime.timezone.utc')
+
+    if tz._name is None:
+        return prettycall(ctx, timezone, tz._offset)
+    return prettycall(ctx, timezone, tz._offset, tz._name)
+
+
+def pretty_pytz_timezone(tz, ctx):
+    if tz == pytz.utc:
+        return identifier('pytz.utc')
+    return prettycall(ctx, pytz.timezone, tz.zone)
+
+
+if _PYTZ_INSTALLED:
+    register_pretty(pytz.tzinfo.BaseTzInfo)(pretty_pytz_timezone)
 
 
 @register_pretty(timedelta)
 def pretty_timedelta(delta, ctx):
     if ctx.depth_left == 0:
-        return pycall(ctx, timedelta, ...)
+        return prettycall(ctx, timedelta, ...)
 
     pos_delta = abs(delta)
     negative = delta != pos_delta
@@ -786,10 +889,10 @@ def pretty_timedelta(delta, ctx):
             kwargdocs[0] = ('days', _doc)
 
     doc = group(
-        fncall(
+        build_fncall(
+            ctx,
             timedelta,
             kwargdocs=kwargdocs,
-            ctx=ctx
         )
     )
 
@@ -803,7 +906,7 @@ def _pretty_recursion(value):
     return f'<Recursion on {type(value).__name__} with id={id(value)}>'
 
 
-def python_to_sdocs(value, indent, width, depth):
+def python_to_sdocs(value, indent, width, depth, ribbon_width=71):
     if depth is None:
         depth = float('inf')
 
@@ -811,4 +914,7 @@ def python_to_sdocs(value, indent, width, depth):
         value,
         ctx=PrettyContext(indent=indent, depth_left=depth, visited=set())
     )
-    return layout_smart(doc, width=width)
+
+    ribbon_frac = min(1.0, ribbon_width / width)
+
+    return layout_smart(doc, width=width, ribbon_frac=ribbon_frac)

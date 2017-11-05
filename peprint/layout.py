@@ -34,7 +34,6 @@ from .doc import (
 )
 from .sdoc import (
     SLine,
-    SText,
     SMetaPush,
     SMetaPop,
 )
@@ -235,7 +234,7 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
             yield doc
             outcol += len(doc)
         elif isinstance(doc, Text):
-            yield SText(doc.value)
+            yield doc.value
             outcol += len(doc.value)
         elif isinstance(doc, Concat):
             # Add the docs to the stack and process them.

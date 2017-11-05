@@ -13,3 +13,4 @@ class Token(IntEnum):
     NUMBER_INT = auto()
     OPERATOR = auto()
     PUNCTUATION = auto()
+    COMMENT_SINGLE = auto()
