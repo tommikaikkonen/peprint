@@ -33,21 +33,6 @@ class WithMeta(Doc):
         return f'WithMeta({repr(self.doc)})'
 
 
-class Text(Doc):
-    __slots__ = ('value', )
-
-    def __init__(self, value):
-        if not isinstance(value, str):
-            raise TypeError(
-                f"Got {repr(value)} of type {type(value).__name__}, "
-                "expected 'str'"
-            )
-        self.value = value
-
-    def __repr__(self):
-        return f'Text({repr(self.value)})'
-
-
 class Nil(Doc):
     def __repr__(self):
         return 'NIL'
@@ -150,7 +135,7 @@ class HardLine(Doc):
 
 
 HARDLINE = HardLine()
-LINE = FlatChoice(HARDLINE, Text(' '))
+LINE = FlatChoice(HARDLINE, ' ')
 SOFTLINE = FlatChoice(HARDLINE, NIL)
 
 

@@ -28,7 +28,6 @@ from .doc import (
     Fill,
     Group,
     Nest,
-    Text,
     normalize_doc,
     WithMeta,
 )
@@ -65,8 +64,6 @@ def fast_fitting_predicate(
             continue
         elif isinstance(doc, str):
             chars_left -= len(doc)
-        elif isinstance(doc, Text):
-            chars_left -= len(doc.value)
         elif isinstance(doc, Concat):
             # Recursive call in Strictly Pretty: docs within Concat
             # are processed in order, with keeping the current
@@ -146,8 +143,6 @@ def smart_fitting_predicate(
             continue
         elif isinstance(doc, str):
             chars_left -= len(doc)
-        elif isinstance(doc, Text):
-            chars_left -= len(doc.value)
         elif isinstance(doc, Concat):
             # Recursive call in Strictly Pretty: docs within Concat
             # are processed in order, with keeping the current
@@ -233,9 +228,6 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
         elif isinstance(doc, str):
             yield doc
             outcol += len(doc)
-        elif isinstance(doc, Text):
-            yield doc.value
-            outcol += len(doc.value)
         elif isinstance(doc, Concat):
             # Add the docs to the stack and process them.
             # The first doc in the concatenation must
