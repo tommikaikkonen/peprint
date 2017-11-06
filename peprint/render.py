@@ -1,10 +1,6 @@
 from io import StringIO
 
-from .sdoc import (
-    SLine,
-    SMetaPush,
-    SMetaPop,
-)
+from .sdoc import SLine
 from .utils import rfind_idx
 
 

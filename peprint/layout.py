@@ -22,6 +22,7 @@ from .doc import (
     NIL,
     HARDLINE,
     AlwaysBreak,
+    Annotated,
     Concat,
     Contextual,
     FlatChoice,
@@ -29,12 +30,11 @@ from .doc import (
     Group,
     Nest,
     normalize_doc,
-    WithMeta,
 )
 from .sdoc import (
     SLine,
-    SMetaPush,
-    SMetaPop,
+    SAnnotationPop,
+    SAnnotationPush,
 )
 
 
@@ -74,7 +74,7 @@ def fast_fitting_predicate(
                 (indent, mode, doc)
                 for doc in reversed(doc.docs)
             )
-        elif isinstance(doc, WithMeta):
+        elif isinstance(doc, Annotated):
             triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, Fill):
             triplestack.extend(
@@ -110,9 +110,9 @@ def fast_fitting_predicate(
                 ribbon_width=ribbon_width,
             )
             triplestack.append((indent, mode, evaluated_doc))
-        elif isinstance(doc, SMetaPush):
+        elif isinstance(doc, SAnnotationPush):
             continue
-        elif isinstance(doc, SMetaPop):
+        elif isinstance(doc, SAnnotationPop):
             continue
         else:
             raise ValueError((indent, mode, doc))
@@ -153,7 +153,7 @@ def smart_fitting_predicate(
                 (indent, mode, doc)
                 for doc in reversed(doc.docs)
             )
-        elif isinstance(doc, WithMeta):
+        elif isinstance(doc, Annotated):
             triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, Fill):
             # Same as the Concat case.
@@ -196,9 +196,9 @@ def smart_fitting_predicate(
                 ribbon_width=ribbon_width,
             )
             triplestack.append((indent, mode, evaluated_doc))
-        elif isinstance(doc, SMetaPush):
+        elif isinstance(doc, SAnnotationPush):
             continue
-        elif isinstance(doc, SMetaPop):
+        elif isinstance(doc, SAnnotationPop):
             continue
         else:
             raise ValueError((indent, mode, doc))
@@ -244,15 +244,15 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
                 ribbon_width=ribbon_width,
             )
             triplestack.append((indent, mode, evaluated_doc))
-        elif isinstance(doc, WithMeta):
-            yield SMetaPush(doc.meta)
+        elif isinstance(doc, Annotated):
+            yield SAnnotationPush(doc.annotation)
             # Usually, the triplestack is solely a stack of docs.
-            # SMetaPop is a special case: when we find an annotated doc,
-            # we output the SMetaPush SDoc directly. The equivalent SMetaPop
-            # must be output after all the nested docs have been processed.
-            # An easy way to do this is to add the SMetaPop directly to the
-            # stack and output it when we see it.
-            triplestack.append((indent, mode, SMetaPop(doc.meta)))
+            # SAnnotationPop is a special case: when we find an annotated doc,
+            # we output the SAnnotationPush SDoc directly. The equivalent
+            # SAnnotationPop must be output after all the nested docs have been
+            # processed. An easy way to do this is to add the SAnnotationPop
+            # directly to the stack and output it when we see it.
+            triplestack.append((indent, mode, SAnnotationPop(doc.annotation)))
             triplestack.append((indent, mode, doc.doc))
         elif isinstance(doc, FlatChoice):
             if mode is BREAK_MODE:
@@ -362,7 +362,7 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
                 triplestack.append(broken_content_triple)
         elif isinstance(doc, AlwaysBreak):
             triplestack.append((indent, BREAK_MODE, doc.doc))
-        elif isinstance(doc, SMetaPop):
+        elif isinstance(doc, SAnnotationPop):
             yield doc
         else:
             raise ValueError((indent, mode, doc))

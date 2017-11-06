@@ -1,7 +1,7 @@
 from ..sdoc import (
     SLine,
-    SMetaPush,
-    SMetaPop,
+    SAnnotationPush,
+    SAnnotationPop,
 )
 from ..syntax import Token
 from ..render import as_lines
@@ -99,7 +99,7 @@ def colored_render_to_stream(stream, sdocs, style, newline='\n', separator=' '):
                 stream.write(sdoc)
             elif isinstance(sdoc, SLine):
                 stream.write(newline + separator * sdoc.indent)
-            elif isinstance(sdoc, SMetaPush):
+            elif isinstance(sdoc, SAnnotationPush):
                 if isinstance(sdoc.value, Token):
                     pygments_token = _SYNTAX_TOKEN_TO_PYGMENTS_TOKEN[sdoc.value]
                     tokenattrs = style.style_for_token(pygments_token)
@@ -107,7 +107,7 @@ def colored_render_to_stream(stream, sdocs, style, newline='\n', separator=' '):
                     colorstack.append(color)
                     stream.write(str(color))
 
-            elif isinstance(sdoc, SMetaPop):
+            elif isinstance(sdoc, SAnnotationPop):
                 try:
                     colorstack.pop()
                 except IndexError:

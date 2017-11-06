@@ -7,7 +7,7 @@ from .doc import (
     Fill,
     Group,
     Nest,
-    WithMeta,
+    Annotated,
     NIL,
     LINE,
     SOFTLINE,
@@ -52,9 +52,9 @@ def concat(docs):
     return Concat([cast_doc(doc) for doc in docs])
 
 
-def with_meta(meta, doc):
-    """Annotates ``doc`` with the arbitrary value``meta``"""
-    return WithMeta(doc, meta)
+def annotate(annotation, doc):
+    """Annotates ``doc`` with the arbitrary value``annotation``"""
+    return Annotated(doc, annotation)
 
 
 def contextual(fn):

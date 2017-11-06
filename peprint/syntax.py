@@ -1,5 +1,6 @@
 from enum import IntEnum, auto
 
+
 class Token(IntEnum):
     KEYWORD_CONSTANT = auto()
     NAME_BUILTIN = auto()

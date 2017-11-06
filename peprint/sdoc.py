@@ -21,21 +21,21 @@ class SLine(SDoc):
         return f'SLine({repr(self.indent)})'
 
 
-class SMetaPush(SDoc):
+class SAnnotationPush(SDoc):
     __slots__ = ('value', )
 
     def __init__(self, value):
         self.value = value
 
     def __repr__(self):
-        return f'SMetaPush({repr(self.value)})'
+        return f'SAnnotationPush({repr(self.value)})'
 
 
-class SMetaPop(SDoc):
+class SAnnotationPop(SDoc):
     __slots__ = ('value', )
 
     def __init__(self, value):
         self.value = value
 
     def __repr__(self):
-        return f'SMetaPush({repr(self.value)})'
+        return f'SAnnotationPush({repr(self.value)})'

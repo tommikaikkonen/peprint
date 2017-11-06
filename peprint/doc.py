@@ -17,20 +17,15 @@ class Doc:
         return self
 
 
-class WithMeta(Doc):
-    __slots__ = ('doc', 'meta')
+class Annotated(Doc):
+    __slots__ = ('doc', 'annotation')
 
-    def __init__(self, doc, meta):
+    def __init__(self, doc, annotation):
         self.doc = doc
-        self.meta = meta
-
-    def normalize(self):
-        if self.meta is None:
-            return self.doc
-        return self
+        self.annotation = annotation
 
     def __repr__(self):
-        return f'WithMeta({repr(self.doc)})'
+        return f'Annotated({repr(self.doc)})'
 
 
 class Nil(Doc):

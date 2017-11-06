@@ -12,7 +12,7 @@ from .api import (
     nest,
     always_break,
     group,
-    with_meta,
+    annotate,
     NIL,
     LINE,
     SOFTLINE,
@@ -32,22 +32,22 @@ else:
 
 UNSET_SENTINEL = object()
 
-COMMA = with_meta(Token.PUNCTUATION, ',')
-COLON = with_meta(Token.PUNCTUATION, ':')
-ELLIPSIS = with_meta(Token.PUNCTUATION, '...')
+COMMA = annotate(Token.PUNCTUATION, ',')
+COLON = annotate(Token.PUNCTUATION, ':')
+ELLIPSIS = annotate(Token.PUNCTUATION, '...')
 
-LPAREN = with_meta(Token.PUNCTUATION, '(')
-RPAREN = with_meta(Token.PUNCTUATION, ')')
+LPAREN = annotate(Token.PUNCTUATION, '(')
+RPAREN = annotate(Token.PUNCTUATION, ')')
 
-LBRACKET = with_meta(Token.PUNCTUATION, '[')
-RBRACKET = with_meta(Token.PUNCTUATION, ']')
+LBRACKET = annotate(Token.PUNCTUATION, '[')
+RBRACKET = annotate(Token.PUNCTUATION, ']')
 
-LBRACE = with_meta(Token.PUNCTUATION, '{')
-RBRACE = with_meta(Token.PUNCTUATION, '}')
+LBRACE = annotate(Token.PUNCTUATION, '{')
+RBRACE = annotate(Token.PUNCTUATION, '}')
 
-NEG_OP = with_meta(Token.OPERATOR, '-')
-MUL_OP = with_meta(Token.OPERATOR, '*')
-ADD_OP = with_meta(Token.OPERATOR, '+')
+NEG_OP = annotate(Token.OPERATOR, '-')
+MUL_OP = annotate(Token.OPERATOR, '*')
+ADD_OP = annotate(Token.OPERATOR, '+')
 
 
 # For dict keys
@@ -82,11 +82,11 @@ MULTILINE_STATEGY_PLAIN = 'MULTILINE_STATEGY_PLAIN'
 
 
 def builtin_identifier(s):
-    return with_meta(Token.NAME_BUILTIN, s)
+    return annotate(Token.NAME_BUILTIN, s)
 
 
 def identifier(s):
-    return with_meta(Token.NAME_FUNCTION, s)
+    return annotate(Token.NAME_FUNCTION, s)
 
 
 def general_identifier(s):
@@ -206,7 +206,7 @@ def bracket(ctx, left, child, right):
 
 
 def comment(text):
-    return with_meta(Token.COMMENT_SINGLE, concat(['# ', text]))
+    return annotate(Token.COMMENT_SINGLE, concat(['# ', text]))
 
 
 def sequence_of_docs(ctx, left, docs, right, dangle=False):
@@ -266,7 +266,7 @@ def build_fncall(ctx, fndoc, argdocs=(), kwargdocs=()):
     kwargdocs = (
         concat([
             binding,
-            with_meta(
+            annotate(
                 Token.OPERATOR,
                 '='
             ),
@@ -459,14 +459,14 @@ def pretty_float(value, ctx):
     elif math.isnan(value):
         return prettycall(ctx, float, 'nan')
 
-    return with_meta(Token.NUMBER_FLOAT, repr(value))
+    return annotate(Token.NUMBER_FLOAT, repr(value))
 
 
 @register_pretty(int)
 def pretty_int(value, ctx):
     if ctx.depth_left == 0:
         return prettycall(ctx, int, ...)
-    return with_meta(Token.NUMBER_INT, repr(value))
+    return annotate(Token.NUMBER_INT, repr(value))
 
 
 @register_pretty(type(...))
@@ -477,7 +477,7 @@ def pretty_ellipsis(value, ctx):
 @register_pretty(bool)
 @register_pretty(type(None))
 def pretty_singletons(value, ctx):
-    return with_meta(Token.KEYWORD_CONSTANT, repr(value))
+    return annotate(Token.KEYWORD_CONSTANT, repr(value))
 
 
 SINGLE_QUOTE_TEXT = "'"
@@ -548,7 +548,7 @@ def escape_str_for_quote(use_quote, s):
 
 def pretty_single_line_str(s, indent, use_quote=None):
     prefix = (
-        with_meta(Token.STRING_AFFIX, 'b')
+        annotate(Token.STRING_AFFIX, 'b')
         if isinstance(s, bytes)
         else ''
     )
@@ -558,7 +558,7 @@ def pretty_single_line_str(s, indent, use_quote=None):
 
     return concat([
         prefix,
-        with_meta(
+        annotate(
             Token.LITERAL_STRING,
             concat([
                 use_quote,
