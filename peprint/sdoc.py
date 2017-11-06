@@ -21,17 +21,6 @@ class SLine(SDoc):
         return f'SLine({repr(self.indent)})'
 
 
-class SText(SDoc):
-    __slots__ = ('value', )
-
-    def __init__(self, value):
-        assert isinstance(value, str)
-        self.value = value
-
-    def __repr__(self):
-        return f'SText({repr(self.value)})'
-
-
 class SMetaPush(SDoc):
     __slots__ = ('value', )
 

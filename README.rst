@@ -3,6 +3,9 @@ peprint
 
 Drop in replacement for pprint with prettier, opinionated (but PEP8 compliant) output.
 
+.. image:: peprintscreenshot.png
+    :alt: Screenshot of peprint output
+
 Usage
 -----
 
