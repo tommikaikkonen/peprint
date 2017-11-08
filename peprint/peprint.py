@@ -1,7 +1,14 @@
 import math
 import re
-from collections import Counter
-from datetime import datetime, timedelta, tzinfo, timezone
+from collections import Counter, OrderedDict
+from datetime import (
+    datetime,
+    timedelta,
+    tzinfo,
+    timezone,
+    date,
+    time,
+)
 from functools import singledispatch, partial
 from itertools import chain, cycle, dropwhile
 from uuid import UUID
@@ -228,13 +235,11 @@ def prettycall(ctx, fn, *args, **kwargs):
     if not kwargs and len(args) == 1:
         sole_arg = args[0]
         if isinstance(sole_arg, (list, dict, tuple)):
-            return group(
-                concat([
-                    fndoc,
-                    LPAREN,
-                    pretty_python_value(sole_arg, ctx),
-                    RPAREN
-                ])
+            return build_fncall(
+                ctx,
+                fndoc,
+                argdocs=[pretty_python_value(sole_arg, ctx)],
+                hug_sole_arg=True,
             )
 
     nested_ctx = (
@@ -257,13 +262,49 @@ def prettycall(ctx, fn, *args, **kwargs):
     )
 
 
-def build_fncall(ctx, fndoc, argdocs=(), kwargdocs=()):
+def build_fncall(
+    ctx,
+    fndoc,
+    argdocs=(),
+    kwargdocs=(),
+    hug_sole_arg=False
+):
+    """Builds a doc that looks like a function call,
+    from docs that represent the function, arguments
+    and keyword arguments.
+
+    If ``hug_sole_arg`` is True, and the represented
+    functional call is done with a single non-keyword
+    argument, the function call parentheses will hug
+    the sole argument doc without newlines and indentation
+    in break mode. This makes a difference in calls
+    like this:
+
+    > hug_sole_arg = False
+    frozenset(
+        [
+            1,
+            2,
+            3,
+            4,
+            5
+        ]
+    )
+    > hug_sole_arg = True
+    frozenset([
+        1,
+        2,
+        3,
+        4,
+        5,
+    ])
+    """
     if callable(fndoc):
         fndoc = general_identifier(fndoc)
 
     argsep = concat([COMMA, LINE])
 
-    kwargdocs = (
+    kwargdocs = [
         concat([
             binding,
             annotate(
@@ -273,23 +314,35 @@ def build_fncall(ctx, fndoc, argdocs=(), kwargdocs=()):
             doc
         ])
         for binding, doc in kwargdocs
-    )
+    ]
 
-    allarg_docs = [*argdocs, *kwargdocs]
-    if not allarg_docs:
+    argdocs = list(argdocs)
+    if not (argdocs or kwargdocs):
         return concat([
             fndoc,
             LPAREN,
             RPAREN,
         ])
 
+    if hug_sole_arg and not kwargdocs and len(argdocs) == 1:
+        return group(
+            concat([
+                fndoc,
+                LPAREN,
+                argdocs[0],
+                RPAREN
+            ])
+        )
+
+    allarg_docs = [*argdocs, *kwargdocs]
+
     return group(
         concat([
             fndoc,
+            LPAREN,
             nest(
                 ctx.indent,
                 concat([
-                    LPAREN,
                     SOFTLINE,
                     concat(
                         intersperse(
@@ -315,7 +368,8 @@ def pretty_bracketable_iterable(value, ctx):
         left, right = LBRACKET, RBRACKET
     elif isinstance(value, tuple):
         left, right = LPAREN, RPAREN
-        dangle = True
+        if len(value) == 1:
+            dangle = True
     elif isinstance(value, set):
         left, right = LBRACE, RBRACE
 
@@ -836,8 +890,62 @@ def pretty_pytz_timezone(tz, ctx):
     return prettycall(ctx, pytz.timezone, tz.zone)
 
 
+def pretty_pytz_dst_timezone(tz, ctx):
+    if pytz.timezone(tz.zone) == tz:
+        return pretty_pytz_timezone(tz, ctx)
+
+    # timezone can't be represented with a
+    # pytz.timezone(zonename) call.
+    # TODO: output comments that have
+    # the zone name.
+    return prettycall(
+        ctx,
+        pytz.tzinfo.DstTzInfo,
+        (tz._utcoffset, tz._dst, tz._tzname)
+    )
+
+
 if _PYTZ_INSTALLED:
     register_pretty(pytz.tzinfo.BaseTzInfo)(pretty_pytz_timezone)
+    register_pretty(pytz.tzinfo.DstTzInfo)(pretty_pytz_dst_timezone)
+
+
+@register_pretty(time)
+def pretty_time(value, ctx):
+    timekws_to_display = reversed(
+        list(
+            dropwhile(
+                lambda kw: getattr(value, kw) == 0,
+                ('microsecond', 'second', 'minute', 'hour')
+            )
+        )
+    )
+
+    additional_kws = []
+    if value.tzinfo is not None:
+        additional_kws.append(('tzinfo', value.tzinfo))
+
+    if value.fold != 0:
+        additional_kws.append(('fold', value.fold))
+
+    kwargs = chain(
+        (
+            (kw, getattr(value, kw))
+            for kw in timekws_to_display
+        ),
+        additional_kws
+    )
+
+    return prettycall(
+        ctx,
+        time,
+        **OrderedDict(kwargs)
+    )
+
+
+@register_pretty(date)
+def pretty_date(value, ctx):
+    return prettycall(ctx, date, value.year, value.month, value.day)
 
 
 @register_pretty(timedelta)
@@ -874,19 +982,27 @@ def pretty_timedelta(delta, ctx):
     if kwargdocs and kwargdocs[0][0] == 'days':
         years, days = divmod(days, 365)
         if years:
-            _doc = concat([
-                pretty_python_value(years, ctx),
-                ' ',
-                MUL_OP,
-                ' ',
-                pretty_python_value(365, ctx),
-                ' ',
-                ADD_OP,
-                ' ',
-                pretty_python_value(days, ctx)
-            ])
+            _docs = []
 
-            kwargdocs[0] = ('days', _doc)
+            if years > 1:
+                _docs.extend([
+                    pretty_python_value(years, ctx),
+                    ' ',
+                    MUL_OP,
+                    ' '
+                ])
+
+            _docs.append(pretty_python_value(365, ctx))
+
+            if days:
+                _docs.extend([
+                    ' ',
+                    ADD_OP,
+                    ' ',
+                    pretty_python_value(days, ctx)
+                ])
+
+            kwargdocs[0] = ('days', concat(_docs))
 
     doc = group(
         build_fncall(
@@ -900,6 +1016,11 @@ def pretty_timedelta(delta, ctx):
         doc = concat([NEG_OP, doc])
 
     return doc
+
+
+@register_pretty(OrderedDict)
+def pretty_ordereddict(d, ctx):
+    return prettycall(ctx, OrderedDict, [*d.items()])
 
 
 def _pretty_recursion(value):

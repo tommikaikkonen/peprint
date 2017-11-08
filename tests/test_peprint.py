@@ -11,6 +11,7 @@ import json
 import timeit
 
 from hypothesis import given, settings
+from hypothesis.extra.pytz import timezones
 from hypothesis import strategies as st
 from peprint import (
     pprint,
@@ -138,10 +139,12 @@ def primitives():
         st.floats(allow_nan=False) |
         st.text() |
         st.binary() |
-        st.datetimes() |
+        st.datetimes(timezones=timezones() | st.none()) |
+        st.dates() |
+        st.times(timezones=timezones() | st.none()) |
         st.timedeltas() |
         st.booleans() |
-        st.just(None)
+        st.none()
     )
 
 
@@ -225,7 +228,8 @@ def test_bytes_pprint_equals_repr(bytestr):
 def test_readable(value):
     formatted = pformat(value)
 
-    assert eval(formatted, None, {'datetime': datetime}) == value
+    _locals = {'datetime': datetime, 'pytz': pytz}
+    assert eval(formatted, None, _locals) == value
 
 
 def nested_dictionaries():
