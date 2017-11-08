@@ -162,7 +162,8 @@ def pretty_queryset(queryset, ctx):
     return build_fncall(
         ctx,
         general_identifier(qs_cls),
-        argdocs=[listdoc]
+        argdocs=[listdoc],
+        hug_sole_arg=True,
     )
 
 
