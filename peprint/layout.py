@@ -109,7 +109,8 @@ def fast_fitting_predicate(
                 page_width=page_width,
                 ribbon_width=ribbon_width,
             )
-            triplestack.append((indent, mode, evaluated_doc))
+            normalized = normalize_doc(evaluated_doc)
+            triplestack.append((indent, mode, normalized))
         elif isinstance(doc, SAnnotationPush):
             continue
         elif isinstance(doc, SAnnotationPop):
@@ -195,7 +196,8 @@ def smart_fitting_predicate(
                 page_width=page_width,
                 ribbon_width=ribbon_width,
             )
-            triplestack.append((indent, mode, evaluated_doc))
+            normalized = normalize_doc(evaluated_doc)
+            triplestack.append((indent, mode, normalized))
         elif isinstance(doc, SAnnotationPush):
             continue
         elif isinstance(doc, SAnnotationPop):
@@ -206,7 +208,14 @@ def smart_fitting_predicate(
     return False
 
 
-def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK_MODE):
+def best_layout(
+    doc,
+    width,
+    ribbon_frac,
+    fitting_predicate,
+    outcol=0,
+    mode=BREAK_MODE
+):
     normalized = normalize_doc(doc)
 
     ribbon_width = max(0, min(width, round(ribbon_frac * width)))
@@ -243,7 +252,8 @@ def best_layout(doc, width, ribbon_frac, fitting_predicate, outcol=0, mode=BREAK
                 page_width=width,
                 ribbon_width=ribbon_width,
             )
-            triplestack.append((indent, mode, evaluated_doc))
+            normalized = normalize_doc(evaluated_doc)
+            triplestack.append((indent, mode, normalized))
         elif isinstance(doc, Annotated):
             yield SAnnotationPush(doc.annotation)
             # Usually, the triplestack is solely a stack of docs.

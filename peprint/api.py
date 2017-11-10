@@ -86,14 +86,6 @@ def nest(i, doc):
     return Nest(i, doc)
 
 
-def hsep(docs):
-    return concat(intersperse(' ', docs))
-
-
-def vsep(docs):
-    return concat(intersperse(LINE, docs))
-
-
 def fillsep(docs):
     return Fill(intersperse(LINE, map(cast_doc, docs)))
 

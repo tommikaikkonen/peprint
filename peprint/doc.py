@@ -52,6 +52,8 @@ class Concat(Doc):
             elif isinstance(doc, AlwaysBreak):
                 propagate_broken = True
                 normalized_docs.append(doc.doc)
+            elif doc is NIL:
+                continue
             else:
                 normalized_docs.append(doc)
 
@@ -99,8 +101,8 @@ class FlatChoice(Doc):
             return broken_normalized
 
         flat_normalized = normalize_doc(self.when_flat)
-        if isinstance(broken_normalized, AlwaysBreak):
-            return flat_normalized
+        if isinstance(flat_normalized, AlwaysBreak):
+            return broken_normalized
 
         return FlatChoice(
             broken_normalized,
@@ -148,6 +150,8 @@ class Group(Doc):
             # or break; since we're always breaking,
             # we don't need Group.
             return doc_normalized
+        elif doc_normalized is NIL:
+            return NIL
         return Group(doc_normalized)
 
     def __repr__(self):
@@ -178,7 +182,25 @@ class Fill(Doc):
         self.docs = list(docs)
 
     def normalize(self):
-        return Fill([normalize_doc(doc) for doc in self.docs])
+        normalized_docs = []
+        propagate_broken = False
+        for doc in self.docs:
+            if isinstance(doc, AlwaysBreak):
+                propagate_broken = True
+                doc = doc.doc
+
+            if isinstance(doc, NIL):
+                continue
+            else:
+                normalized_docs.append(doc)
+
+        if normalized_docs:
+            res = Fill(normalized_docs)
+            if propagate_broken:
+                res = AlwaysBreak(res)
+            return res
+
+        return NIL
 
     def __repr__(self):
         return f"Fill([{', '.join(repr(doc) for doc in self.docs)}])"

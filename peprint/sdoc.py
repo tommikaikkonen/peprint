@@ -3,13 +3,6 @@ class SDoc(object):
     pass
 
 
-class SNil(SDoc):
-    pass
-
-
-SNIL = SNil()
-
-
 class SLine(SDoc):
     __slots__ = ('indent', )
 
