@@ -12,6 +12,20 @@ import sys
 from pprint import isrecursive, isreadable, saferepr
 from .peprint import python_to_sdocs
 from .render import default_render_to_stream
+from .api import (
+    group,
+    concat,
+    annotate,
+    contextual,
+    align,
+    hang,
+    nest,
+    NIL,
+    LINE,
+    SOFTLINE,
+    HARDLINE,
+)
+from .utils import intersperse
 
 
 class PrettyPrinter:
