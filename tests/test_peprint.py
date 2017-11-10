@@ -22,7 +22,7 @@ from pprint import (
     pprint as nativepprint,
     pformat as nativepformat,
 )
-from peprint.api import (
+from peprint import (
     align,
     concat,
     HARDLINE,

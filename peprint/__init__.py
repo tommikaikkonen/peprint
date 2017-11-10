@@ -13,11 +13,14 @@ from pprint import isrecursive, isreadable, saferepr
 from .peprint import python_to_sdocs
 from .render import default_render_to_stream
 from .api import (
+    always_break,
     group,
     concat,
     annotate,
     contextual,
     align,
+    flat_choice,
+    fill,
     hang,
     nest,
     NIL,
@@ -26,6 +29,35 @@ from .api import (
     HARDLINE,
 )
 from .utils import intersperse
+
+
+__all__ = [
+    'PrettyPrinter',
+    'pformat',
+    'pprint',
+    'saferepr',
+    'isreadable',
+    'isrecursive',
+    'default_render_to_stream',
+    'python_to_sdocs',
+    'cpprint',
+    'install_to_ipython',
+    'always_break',
+    'group',
+    'concat',
+    'annotate',
+    'contextual',
+    'align',
+    'flat_choice',
+    'fill',
+    'hang',
+    'nest',
+    'NIL',
+    'HARDLINE',
+    'SOFTLINE',
+    'LINE',
+    'intersperse'
+]
 
 
 class PrettyPrinter:
