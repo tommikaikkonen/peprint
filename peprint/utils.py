@@ -1,5 +1,11 @@
 
 def intersperse(x, ys):
+    """
+    Returns an iterable where ``x`` is inserted between
+    each element of ``ys``
+
+    :type ys: Iterable
+    """
     it = iter(ys)
 
     try:

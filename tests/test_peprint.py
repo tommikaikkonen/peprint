@@ -25,9 +25,10 @@ from pprint import (
 from peprint.api import (
     align,
     concat,
-    fillsep,
-    text,
-    HARDLINE
+    HARDLINE,
+    LINE,
+    intersperse,
+    fill,
 )
 from peprint.render import default_render_to_str
 from peprint.layout import layout_smart
@@ -35,7 +36,7 @@ from peprint.layout import layout_smart
 
 def test_align():
     doc = concat([
-        text('lorem '),
+        'lorem ',
         align(
             concat([
                 'ipsum',
@@ -54,10 +55,12 @@ lorem ipsum
 
 
 def test_fillsep():
-    doc = fillsep(
-        islice(
-            cycle(["lorem", "ipsum", "dolor", "sit", "amet"]),
-            20
+    doc = fill(intersperse(
+            LINE,
+            islice(
+                cycle(["lorem", "ipsum", "dolor", "sit", "amet"]),
+                20
+            )
         )
     )
 

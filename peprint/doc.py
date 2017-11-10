@@ -1,13 +1,9 @@
 def normalize_doc(doc):
     if isinstance(doc, str):
+        if doc == '':
+            return NIL
         return doc
     return doc.normalize()
-
-
-def is_doc(doc):
-    if isinstance(doc, str):
-        return True
-    return isinstance(doc, Doc)
 
 
 class Doc:
@@ -40,7 +36,7 @@ class Concat(Doc):
     __slots__ = ('docs', )
 
     def __init__(self, docs):
-        self.docs = docs
+        self.docs = list(docs)
 
     def normalize(self):
         normalized_docs = []
@@ -57,7 +53,14 @@ class Concat(Doc):
             else:
                 normalized_docs.append(doc)
 
-        res = Concat(normalized_docs)
+        if not normalized_docs:
+            return NIL
+
+        if len(normalized_docs) == 1:
+            res = normalized_docs[0]
+        else:
+            res = Concat(normalized_docs)
+
         if propagate_broken:
             res = AlwaysBreak(res)
         return res
@@ -189,7 +192,7 @@ class Fill(Doc):
                 propagate_broken = True
                 doc = doc.doc
 
-            if isinstance(doc, NIL):
+            if doc is NIL:
                 continue
             else:
                 normalized_docs.append(doc)

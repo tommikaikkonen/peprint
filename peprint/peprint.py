@@ -278,26 +278,26 @@ def build_fncall(
     argument, the function call parentheses will hug
     the sole argument doc without newlines and indentation
     in break mode. This makes a difference in calls
-    like this:
+    like this::
 
-    > hug_sole_arg = False
-    frozenset(
-        [
+        > hug_sole_arg = False
+        frozenset(
+            [
+                1,
+                2,
+                3,
+                4,
+                5
+            ]
+        )
+        > hug_sole_arg = True
+        frozenset([
             1,
             2,
             3,
             4,
-            5
-        ]
-    )
-    > hug_sole_arg = True
-    frozenset([
-        1,
-        2,
-        3,
-        4,
-        5,
-    ])
+            5,
+        ])
     """
     if callable(fndoc):
         fndoc = general_identifier(fndoc)
