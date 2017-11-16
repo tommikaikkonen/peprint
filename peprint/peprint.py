@@ -88,6 +88,12 @@ MULTILINE_STATEGY_HANG = 'MULTILINE_STATEGY_HANG'
 MULTILINE_STATEGY_PLAIN = 'MULTILINE_STATEGY_PLAIN'
 
 
+IMPLICIT_MODULES = {
+    '__main__',
+    'builtins',
+}
+
+
 def builtin_identifier(s):
     return annotate(Token.NAME_BUILTIN, s)
 
@@ -100,8 +106,10 @@ def general_identifier(s):
     if callable(s):
         module, qualname = s.__module__, s.__qualname__
 
-        if module == 'builtins':
-            return builtin_identifier(qualname)
+        if module in IMPLICIT_MODULES:
+            if module == 'builtins':
+                return builtin_identifier(qualname)
+            return identifier(qualname)
         return identifier(f'{module}.{qualname}')
     return identifier(s)
 
@@ -196,9 +204,12 @@ def _repr_pretty(value, ctx):
 pretty_python_value = singledispatch(partial(_pretty_dispatch, _repr_pretty))
 
 
-def register_pretty(_type):
+def register_pretty(type):
+    """Returns a decorator that registers the decorated function
+    as the pretty printer for instances of ``type``.
+    """
     def decorator(fn):
-        pretty_python_value.register(_type, partial(_pretty_dispatch, fn))
+        pretty_python_value.register(type, partial(_pretty_dispatch, fn))
         return fn
     return decorator
 
@@ -227,6 +238,35 @@ def sequence_of_docs(ctx, left, docs, right, dangle=False):
 
 
 def prettycall(ctx, fn, *args, **kwargs):
+    """Returns a Doc that represents a function call to :keyword:`fn` with
+    the remaining positional and keyword arguments.
+
+    Given an arbitrary context ``ctx``,::
+
+        prettycall(ctx, sorted, [7, 4, 5], reverse=True)
+
+    Will result in output::
+
+        sorted([7, 4, 5], reverse=True)
+
+    The layout algorithm will automatically break the call to multiple
+    lines if needed::
+
+        sorted(
+            [7, 4, 5],
+            reverse=True
+        )
+
+    ``prettycall`` automatically handles syntax highlighting.
+
+    :param ctx: a context value
+    :type ctx: peprint.peprint.PrettyContext
+    :param fn: a callable
+    :param args: positional arguments to render to the call
+    :param kwargs: keyword arguments to render to the call
+    :returns: :class:`~peprint.doc.Doc`
+    """
+
     fndoc = general_identifier(fn)
 
     if ctx.depth_left <= 0:
@@ -716,17 +756,24 @@ def str_to_lines(max_len, use_quote, s):
 @register_pretty(str)
 @register_pretty(bytes)
 def pretty_str(s, ctx):
+    # Subclasses of str/bytes
+    # will be printed as StrSubclass('the actual string')
+    constructor = type(s)
+    is_native_type = constructor in (str, bytes)
+
     if ctx.depth_left == 0:
         if isinstance(s, str):
-            return prettycall(ctx, str, ...)
+            return prettycall(ctx, constructor, ...)
         else:
             assert isinstance(s, bytes)
-            return prettycall(ctx, bytes, ...)
+            return prettycall(ctx, constructor, ...)
 
     multiline_strategy = ctx.multiline_strategy
     peprint_indent = ctx.indent
 
     def evaluator(indent, column, page_width, ribbon_width):
+        nonlocal multiline_strategy
+
         columns_left_in_line = page_width - column
         columns_left_in_ribbon = indent + ribbon_width - column
         available_width = min(columns_left_in_line, columns_left_in_ribbon)
@@ -735,7 +782,9 @@ def pretty_str(s, ctx):
         flat_version = pretty_single_line_str(s, peprint_indent)
 
         if singleline_str_chars <= available_width:
-            return flat_version
+            if is_native_type:
+                return flat_version
+            return build_fncall(ctx, constructor, argdocs=[flat_version])
 
         # multiline string
         each_line_starts_on_col = indent + peprint_indent
@@ -763,8 +812,14 @@ def pretty_str(s, ctx):
             )
         )
 
+        if not is_native_type:
+            multiline_strategy = MULTILINE_STATEGY_PLAIN
+
         if multiline_strategy == MULTILINE_STATEGY_PLAIN:
-            return always_break(concat(parts))
+            res = always_break(concat(parts))
+            if is_native_type:
+                return res
+            return build_fncall(ctx, constructor, argdocs=[res])
         elif multiline_strategy == MULTILINE_STATEGY_HANG:
             return always_break(
                 nest(
@@ -872,6 +927,8 @@ def pretty_tzinfo(value, ctx):
         return identifier('datetime.timezone.utc')
     elif _PYTZ_INSTALLED and value == pytz.utc:
         return identifier('pytz.utc')
+    else:
+        return repr(value)
 
 
 @register_pretty(timezone)

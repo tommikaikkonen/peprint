@@ -10,7 +10,11 @@ from io import StringIO
 import sys
 
 from pprint import isrecursive, isreadable, saferepr
-from .peprint import python_to_sdocs
+from .peprint import (
+    python_to_sdocs,
+    register_pretty,
+    prettycall,
+)
 from .render import default_render_to_stream
 from .api import (
     always_break,
@@ -56,7 +60,9 @@ __all__ = [
     'HARDLINE',
     'SOFTLINE',
     'LINE',
-    'intersperse'
+    'intersperse',
+    'register_pretty',
+    'prettycall'
 ]
 
 

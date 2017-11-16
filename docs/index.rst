@@ -1,6 +1,8 @@
 peprint
 ======================================
 
+A syntax-highlighted, beautifully composable pretty printer for Python. 
+
 Contents:
 
 .. toctree::

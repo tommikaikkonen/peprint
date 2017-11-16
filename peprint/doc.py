@@ -7,6 +7,14 @@ def normalize_doc(doc):
 
 
 class Doc:
+    """The base class for all Docs, except for plain ``str`` s.
+
+    A Doc is a tree structure that represents the set of all possible
+    layouts of the contents. The layout algorithm processes the tree,
+    narrowing down the set of layouts based on input parameters like
+    total and ribbon width to produce a stream of SDocs (simple Docs)
+    that represent a single layout.
+    """
     __slots__ = ()
 
     def normalize(self):
