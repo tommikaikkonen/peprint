@@ -1,3 +1,4 @@
+import inspect
 import math
 import re
 from collections import Counter, OrderedDict
@@ -25,6 +26,7 @@ from .api import (
     SOFTLINE,
     HARDLINE
 )
+from .doc import Doc
 
 from .layout import layout_smart
 from .syntax import Token
@@ -192,6 +194,17 @@ def _pretty_dispatch(produce_doc, value, ctx):
 
     doc = produce_doc(value, ctx)
 
+    if not (
+        isinstance(doc, str) or
+        isinstance(doc, Doc)
+    ):
+        fnname = f'{produce_doc.__module__}.{produce_doc.__qualname__}'
+        raise ValueError(
+            'Functions decorated with register_pretty must return '
+            f'an instance of str or Doc. {fnname} returned '
+            f'{repr(doc)} instead.'
+        )
+
     ctx.end_visit(value)
 
     return doc
@@ -209,6 +222,21 @@ def register_pretty(type):
     as the pretty printer for instances of ``type``.
     """
     def decorator(fn):
+        sig = inspect.signature(fn)
+
+        value = None
+        ctx = None
+
+        try:
+            sig.bind(value, ctx)
+        except TypeError:
+            fnname = f'{fn.__module__}.{fn.__qualname__}'
+            raise ValueError(
+                "Functions decorated with register_pretty must accept "
+                "exactly two positional parameters: 'value' and 'ctx'. "
+                f"The function signature for {fnname} was not compatible."
+            )
+
         pretty_python_value.register(type, partial(_pretty_dispatch, fn))
         return fn
     return decorator
