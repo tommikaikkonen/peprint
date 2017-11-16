@@ -302,7 +302,7 @@ def prettycall(ctx, fn, *args, **kwargs):
 
     if not kwargs and len(args) == 1:
         sole_arg = args[0]
-        if isinstance(sole_arg, (list, dict, tuple)):
+        if type(sole_arg) in (list, dict, tuple):
             return build_fncall(
                 ctx,
                 fndoc,
