@@ -1,18 +1,8 @@
 import inspect
 import math
 import re
-from collections import Counter, OrderedDict
-from datetime import (
-    datetime,
-    timedelta,
-    tzinfo,
-    timezone,
-    date,
-    time,
-)
 from functools import singledispatch, partial
-from itertools import chain, cycle, dropwhile
-from uuid import UUID
+from itertools import chain, cycle
 
 from .api import (
     always_break,
@@ -36,13 +26,6 @@ from .doc import (
 from .layout import layout_smart
 from .syntax import Token
 from .utils import identity, intersperse
-
-try:
-    import pytz
-except ImportError:
-    _PYTZ_INSTALLED = False
-else:
-    _PYTZ_INSTALLED = True
 
 UNSET_SENTINEL = object()
 
@@ -130,14 +113,42 @@ class _TrailingCommentedValue:
 
 
 def annotate_comment(comment, doc):
+    """Annotate ``doc`` with ``comment`` text.
+
+    Peprint will make sure the parent (or top-level) handler
+    will render the comment in a proper way. E.g. if ``doc``
+    represents an element in a list, then the ``list`` pretty
+    printer will handle where to place the comment.
+
+    Differs from ``comment`` and ``trailing_comment`` by
+    operating only on Docs, not normal values.
+    """
     return annotate(CommentAnnotation(comment), doc)
 
 
 def comment(comment_str, value):
+    """Annotates a value with a comment str.
+
+    Allows you to insert comments into Peprint output
+    by annotating them on the values directly, instead
+    of first having to render them into a Doc and then
+    annotating the Doc with ``annotate_comment``.
+
+    Generally, you want to use this to annotate arguments
+    to ``prettycall``.
+    """
     return _CommentedValue(value, comment_str)
 
 
 def trailing_comment(comment_str, value):
+    """Annotates a value with a comment str, so that
+    the comment will be rendered "trailing", e.g. in place
+    of the last element in a list, set or tuple, or after
+    the last argument in a function.
+
+    This will force the rendering of `value` to be broken
+    to multple lines as Python does not have inline comments.
+    """
     return _TrailingCommentedValue(value, comment_str)
 
 
@@ -181,6 +192,13 @@ def general_identifier(s):
             return identifier(qualname)
         return identifier(f'{module}.{qualname}')
     return identifier(s)
+
+
+def classattr(cls, attrname):
+    return concat([
+        general_identifier(cls),
+        identifier(f'.{attrname}')
+    ])
 
 
 class PrettyContext:
@@ -268,7 +286,7 @@ def _run_pretty(pretty_fn, value, ctx, trailing_comment=None):
         isinstance(doc, str) or
         isinstance(doc, Doc)
     ):
-        fnname = f'{produce_doc.__module__}.{produce_doc.__qualname__}'
+        fnname = f'{pretty_fn.__module__}.{pretty_fn.__qualname__}'
         raise ValueError(
             'Functions decorated with register_pretty must return '
             f'an instance of str or Doc. {fnname} returned '
@@ -919,11 +937,6 @@ def pretty_dict(d, ctx):
     return doc
 
 
-@register_pretty(Counter)
-def pretty_counter(counter, ctx):
-    return prettycall(ctx, Counter, dict(counter))
-
-
 INF_FLOAT = float('inf')
 NEG_INF_FLOAT = float('-inf')
 
@@ -1234,233 +1247,6 @@ def pretty_str(s, ctx):
             )
 
     return contextual(evaluator)
-
-
-@register_pretty(UUID)
-def pretty_uuid(value, ctx):
-    return prettycall(ctx, UUID, str(value))
-
-
-@register_pretty(datetime)
-def pretty_datetime(dt, ctx):
-    dt_kwargs = [
-        (k, getattr(dt, k))
-        for k in (
-            'microsecond',
-            'second',
-            'minute',
-            'hour',
-            'day',
-            'month',
-            'year',
-        )
-    ]
-
-    kwargs_to_show = list(
-        dropwhile(
-            lambda k__v: k__v[1] == 0,
-            dt_kwargs
-        )
-    )
-
-    kwargdocs = [
-        (
-            k,
-            pretty_python_value(v, ctx.nested_call())
-        )
-        for k, v in reversed(kwargs_to_show)
-    ]
-
-    if dt.tzinfo is not None:
-        tzinfodoc = pretty_python_value(
-            dt.tzinfo,
-            ctx=ctx.nested_call()
-        )
-        kwargdocs.append(
-            ('tzinfo', tzinfodoc)
-        )
-
-    if dt.fold:
-        kwargdocs.append(('fold', pretty_python_value(1, ctx=ctx)))
-
-    if len(kwargdocs) == 3:  # year, month, day
-        return prettycall(
-            ctx,
-            datetime,
-            dt.year,
-            dt.month,
-            dt.day,
-        )
-
-    return group(
-        build_fncall(
-            ctx,
-            datetime,
-            kwargdocs=kwargdocs,
-        )
-    )
-
-
-@register_pretty(tzinfo)
-def pretty_tzinfo(value, ctx):
-    if value == timezone.utc:
-        return identifier('datetime.timezone.utc')
-    elif _PYTZ_INSTALLED and value == pytz.utc:
-        return identifier('pytz.utc')
-    else:
-        return repr(value)
-
-
-@register_pretty(timezone)
-def pretty_timezone(tz, ctx):
-    if tz == timezone.utc:
-        return identifier('datetime.timezone.utc')
-
-    if tz._name is None:
-        return prettycall(ctx, timezone, tz._offset)
-    return prettycall(ctx, timezone, tz._offset, tz._name)
-
-
-def pretty_pytz_timezone(tz, ctx):
-    if tz == pytz.utc:
-        return identifier('pytz.utc')
-    return prettycall(ctx, pytz.timezone, tz.zone)
-
-
-def pretty_pytz_dst_timezone(tz, ctx):
-    if tz.zone and pytz.timezone(tz.zone) == tz:
-        return pretty_pytz_timezone(tz, ctx)
-
-    calldoc = prettycall(
-        ctx,
-        pytz.tzinfo.DstTzInfo,
-        (tz._utcoffset, tz._dst, tz._tzname)
-    )
-
-    if tz.zone:
-        return annotate_comment(
-            f'In timezone {tz.zone}',
-            calldoc
-        )
-    return calldoc
-
-
-if _PYTZ_INSTALLED:
-    register_pretty(pytz.tzinfo.BaseTzInfo)(pretty_pytz_timezone)
-    register_pretty(pytz.tzinfo.DstTzInfo)(pretty_pytz_dst_timezone)
-
-
-@register_pretty(time)
-def pretty_time(value, ctx):
-    timekws_to_display = reversed(
-        list(
-            dropwhile(
-                lambda kw: getattr(value, kw) == 0,
-                ('microsecond', 'second', 'minute', 'hour')
-            )
-        )
-    )
-
-    additional_kws = []
-    if value.tzinfo is not None:
-        additional_kws.append(('tzinfo', value.tzinfo))
-
-    if value.fold != 0:
-        additional_kws.append(('fold', value.fold))
-
-    kwargs = chain(
-        (
-            (kw, getattr(value, kw))
-            for kw in timekws_to_display
-        ),
-        additional_kws
-    )
-
-    return prettycall(
-        ctx,
-        time,
-        **OrderedDict(kwargs)
-    )
-
-
-@register_pretty(date)
-def pretty_date(value, ctx):
-    return prettycall(ctx, date, value.year, value.month, value.day)
-
-
-@register_pretty(timedelta)
-def pretty_timedelta(delta, ctx):
-    if ctx.depth_left == 0:
-        return prettycall(ctx, timedelta, ...)
-
-    pos_delta = abs(delta)
-    negative = delta != pos_delta
-
-    days = pos_delta.days
-    seconds = pos_delta.seconds
-    microseconds = pos_delta.microseconds
-
-    minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    milliseconds, microseconds = divmod(microseconds, 1000)
-
-    attrs = [
-        ('days', days),
-        ('hours', hours),
-        ('minutes', minutes),
-        ('seconds', seconds),
-        ('milliseconds', milliseconds),
-        ('microseconds', microseconds),
-    ]
-
-    kwargdocs = [
-        (k, pretty_python_value(v, ctx=ctx.nested_call()))
-        for k, v in attrs
-        if v != 0
-    ]
-
-    if kwargdocs and kwargdocs[0][0] == 'days':
-        years, days = divmod(days, 365)
-        if years:
-            _docs = []
-
-            if years > 1:
-                _docs.extend([
-                    pretty_python_value(years, ctx),
-                    ' ',
-                    MUL_OP,
-                    ' '
-                ])
-
-            _docs.append(pretty_python_value(365, ctx))
-
-            if days:
-                _docs.extend([
-                    ' ',
-                    ADD_OP,
-                    ' ',
-                    pretty_python_value(days, ctx)
-                ])
-
-            kwargdocs[0] = ('days', concat(_docs))
-
-    doc = group(
-        build_fncall(
-            ctx,
-            timedelta,
-            kwargdocs=kwargdocs,
-        )
-    )
-
-    if negative:
-        doc = concat([NEG_OP, doc])
-
-    return doc
-
-
-@register_pretty(OrderedDict)
-def pretty_ordereddict(d, ctx):
-    return prettycall(ctx, OrderedDict, [*d.items()])
 
 
 def _pretty_recursion(value):

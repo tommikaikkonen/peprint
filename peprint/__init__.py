@@ -34,6 +34,10 @@ from .api import (
 )
 from .utils import intersperse
 
+# Registers standard library types
+# as a side effect
+import peprint.pretty_stdlib
+
 
 __all__ = [
     'PrettyPrinter',
