@@ -15,6 +15,9 @@ from ..peprint import (
     pretty_python_value,
     register_pretty,
     sequence_of_docs,
+    annotate_comment,
+    comment,
+    trailing_comment
 )
 
 from ..utils import find
@@ -101,6 +104,10 @@ def pretty_base_model(instance, ctx):
         .use_multiline_strategy(MULTILINE_STATEGY_HANG)
     )
 
+    null_fieldnames = []
+    blank_fieldnames = []
+    default_fieldnames = []
+
     for field in fields:
         if isinstance(field, ForeignKey):
             fk_value = getattr(instance, field.attname)
@@ -116,7 +123,7 @@ def pretty_base_model(instance, ctx):
                     )
                 ))
             else:
-                attrs.append((field.name, pretty_python_value(None, value_ctx)))
+                null_fieldnames.append(field.attname)
         else:
             value = getattr(instance, field.name)
 
@@ -127,14 +134,72 @@ def pretty_base_model(instance, ctx):
                     default_value = field.default
 
                 if value == default_value:
+                    default_fieldnames.append(field.attname)
                     continue
 
-            attrs.append((field.name, pretty_python_value(value, value_ctx)))
+            if field.null and value is None:
+                null_fieldnames.append(field.attname)
+                continue
+
+            if field.blank and value in field.empty_values:
+                blank_fieldnames.append(field.attname)
+                continue
+
+            kw = field.name
+            vdoc = pretty_python_value(value, value_ctx)
+
+            if field.choices:
+                choices = tuple(field.choices)
+                ungrouped_choices = (
+                    (_value, _display)
+                    for value, display in choices
+                    for _value, _display in (
+                        display if
+                        isinstance(display, tuple)
+                        else [(value, display)])
+                )
+
+                value__display = find(
+                    lambda value__display: value__display[0],
+                    ungrouped_choices,
+                )
+
+                try:
+                    _, display = value__display
+                except ValueError:
+                    display = None
+
+                if display:
+                    vdoc = annotate_comment(
+                        display,
+                        vdoc
+                    )
+
+            attrs.append((kw, vdoc))
+
+    commentstr = (
+        (
+            f"Null fields: {', '.join(null_fieldnames)}\n"
+            if null_fieldnames
+            else ''
+        ) +
+        (
+            f"Blank fields: {', '.join(blank_fieldnames)}\n"
+            if blank_fieldnames
+            else ''
+        ) +
+        (
+            f"Default value fields: {', '.join(default_fieldnames)}\n"
+            if default_fieldnames
+            else ''
+        )
+    )
 
     return build_fncall(
         ctx,
         model,
-        kwargdocs=attrs
+        kwargdocs=attrs,
+        trailing_comment=commentstr or None,
     )
 
 
@@ -142,28 +207,25 @@ def pretty_queryset(queryset, ctx):
     qs_cls = type(queryset)
 
     instances = list(queryset[:QUERYSET_OUTPUT_SIZE + 1])
-    element_ctx = ctx.set(ModelVerbosity, ModelVerbosity.SHORT)
-    docs = [
-        pretty_python_value(value, element_ctx)
-        for value in instances
-    ]
-
     if len(instances) > QUERYSET_OUTPUT_SIZE:
-        docs[-1] = comment('...remaining elements truncated')
+        truncated = True
+        instances = instances[:-1]
+    else:
+        truncated = False
 
-    listdoc = sequence_of_docs(
-        ctx,
-        LBRACKET,
-        docs,
-        RBRACKET,
-        dangle=False
-    )
+    element_ctx = ctx.set(ModelVerbosity, ModelVerbosity.SHORT)
 
-    return build_fncall(
-        ctx,
-        general_identifier(qs_cls),
-        argdocs=[listdoc],
-        hug_sole_arg=True,
+    return prettycall(
+        element_ctx,
+        qs_cls,
+        (
+            trailing_comment(
+                '...remaining elements truncated',
+                instances
+            )
+            if truncated
+            else instances
+        )
     )
 
 

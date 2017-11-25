@@ -232,7 +232,8 @@ def test_readable(value):
     formatted = pformat(value)
 
     _locals = {'datetime': datetime, 'pytz': pytz}
-    assert eval(formatted, None, _locals) == value
+    evald = eval(formatted, None, _locals)
+    assert evald == value
 
 
 def nested_dictionaries():
@@ -319,3 +320,17 @@ def test_datetime():
 @given(nested_dictionaries())
 def test_nested_structures(value):
     pprint(value)
+
+
+def test_comments():
+    cpprint(datetime.time(
+        hour=21,
+        minute=49,
+        second=19,
+        microsecond=32150,
+        tzinfo=pytz.tzinfo.DstTzInfo((
+            -datetime.timedelta(hours=2),
+            datetime.timedelta(),
+            '-02'
+        ))
+    ))

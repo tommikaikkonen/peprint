@@ -31,3 +31,7 @@ def rfind_idx(predicate, seq):
         if predicate(el):
             return length - i - 1
     return -1
+
+
+def identity(x):
+    return x

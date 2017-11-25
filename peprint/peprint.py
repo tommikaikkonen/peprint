@@ -15,22 +15,27 @@ from itertools import chain, cycle, dropwhile
 from uuid import UUID
 
 from .api import (
+    always_break,
+    annotate,
     concat,
     contextual,
-    nest,
-    always_break,
+    flat_choice,
+    fill,
     group,
-    annotate,
+    nest,
     NIL,
     LINE,
     SOFTLINE,
     HARDLINE
 )
-from .doc import Doc
+from .doc import (
+    Annotated,
+    Doc
+)
 
 from .layout import layout_smart
 from .syntax import Token
-from .utils import intersperse
+from .utils import identity, intersperse
 
 try:
     import pytz
@@ -57,6 +62,13 @@ RBRACE = annotate(Token.PUNCTUATION, '}')
 NEG_OP = annotate(Token.OPERATOR, '-')
 MUL_OP = annotate(Token.OPERATOR, '*')
 ADD_OP = annotate(Token.OPERATOR, '+')
+ASSIGN_OP = annotate(Token.OPERATOR, '=')
+
+WHITESPACE_PATTERN_TEXT = re.compile(r'(\s+)')
+WHITESPACE_PATTERN_BYTES = re.compile(rb'(\s+)')
+
+NONWORD_PATTERN_TEXT = re.compile(r'(\W+)')
+NONWORD_PATTERN_BYTES = re.compile(rb'(\W+)')
 
 
 # For dict keys
@@ -94,6 +106,61 @@ IMPLICIT_MODULES = {
     '__main__',
     'builtins',
 }
+
+
+class CommentAnnotation:
+    def __init__(self, value):
+        assert isinstance(value, str)
+        self.value = value
+
+    def __repr__(self):
+        return f'ValueComment({repr(self.value)})'
+
+
+class _CommentedValue:
+    def __init__(self, value, comment):
+        self.value = value
+        self.comment = comment
+
+
+class _TrailingCommentedValue:
+    def __init__(self, value, comment):
+        self.value = value
+        self.comment = comment
+
+
+def annotate_comment(comment, doc):
+    return annotate(CommentAnnotation(comment), doc)
+
+
+def comment(comment_str, value):
+    return _CommentedValue(value, comment_str)
+
+
+def trailing_comment(comment_str, value):
+    return _TrailingCommentedValue(value, comment_str)
+
+
+def unwrap_comments(value):
+    comment = None
+    trailing_comment = None
+
+    while isinstance(value, (_CommentedValue, _TrailingCommentedValue)):
+        if isinstance(value, _CommentedValue):
+            comment = value.comment
+            value = value.value
+        elif isinstance(value, _TrailingCommentedValue):
+            trailing_comment = value.comment
+            value = value.value
+
+    return (value, comment, trailing_comment)
+
+
+def is_commented(value):
+    return (
+        isinstance(value, Annotated) and
+        isinstance(value.annotation, CommentAnnotation)
+    )
 
 
 def builtin_identifier(s):
@@ -186,13 +253,16 @@ class PrettyContext:
         return id(value) in self.visited
 
 
-def _pretty_dispatch(produce_doc, value, ctx):
+def _run_pretty(pretty_fn, value, ctx, trailing_comment=None):
     if ctx.is_visited(value):
         return _pretty_recursion(value)
 
     ctx.start_visit(value)
 
-    doc = produce_doc(value, ctx)
+    if trailing_comment:
+        doc = pretty_fn(value, ctx, trailing_comment=trailing_comment)
+    else:
+        doc = pretty_fn(value, ctx)
 
     if not (
         isinstance(doc, str) or
@@ -214,7 +284,33 @@ def _repr_pretty(value, ctx):
     return repr(value)
 
 
-pretty_python_value = singledispatch(partial(_pretty_dispatch, _repr_pretty))
+pretty_dispatch = singledispatch(partial(_run_pretty, _repr_pretty))
+
+
+def pretty_python_value(value, ctx):
+    comment = None
+    trailing_comment = None
+
+    value, comment, trailing_comment = unwrap_comments(value)
+
+    if trailing_comment:
+        doc = pretty_dispatch(
+            value,
+            ctx,
+            trailing_comment=trailing_comment
+        )
+    else:
+        doc = pretty_dispatch(
+            value,
+            ctx
+        )
+
+    if comment:
+        return annotate_comment(
+            comment,
+            doc
+        )
+    return doc
 
 
 def register_pretty(type):
@@ -237,7 +333,7 @@ def register_pretty(type):
                 f"The function signature for {fnname} was not compatible."
             )
 
-        pretty_python_value.register(type, partial(_pretty_dispatch, fn))
+        pretty_dispatch.register(type, partial(_run_pretty, fn))
         return fn
     return decorator
 
@@ -251,18 +347,132 @@ def bracket(ctx, left, child, right):
     ])
 
 
-def comment(text):
-    return annotate(Token.COMMENT_SINGLE, concat(['# ', text]))
+def commentdoc(text):
+    """Returns a Doc representing a comment `text`. `text` is
+    treated as words, and any whitespace may be used to break
+    the comment to multiple lines."""
+    if not text:
+        raise ValueError(
+            f'Expected non-empty comment str, got {repr(text)}'
+        )
+
+    commentlines = []
+    for line in text.splitlines():
+        alternating_words_ws = list(filter(None, WHITESPACE_PATTERN_TEXT.split(line)))
+        starts_with_whitespace = bool(
+            WHITESPACE_PATTERN_TEXT.match(alternating_words_ws[0])
+        )
+
+        if starts_with_whitespace:
+            prefix = alternating_words_ws[0]
+            alternating_words_ws = alternating_words_ws[1:]
+        else:
+            prefix = NIL
+
+        if len(alternating_words_ws) % 2 == 0:
+            # The last part must be whitespace.
+            alternating_words_ws = alternating_words_ws[:-1]
+
+        for idx, tup in enumerate(zip(alternating_words_ws, cycle([False, True]))):
+            part, is_ws = tup
+            if is_ws:
+                alternating_words_ws[idx] = flat_choice(
+                    when_flat=part,
+                    when_broken=concat([
+                        HARDLINE,
+                        '# ',
+                    ])
+                )
+
+        commentlines.append(
+            concat([
+                '# ',
+                prefix,
+                fill(alternating_words_ws)
+            ])
+        )
+
+    outer = identity
+
+    if len(commentlines) > 1:
+        outer = always_break
+
+    return annotate(
+        Token.COMMENT_SINGLE,
+        outer(concat(intersperse(HARDLINE, commentlines)))
+    )
 
 
 def sequence_of_docs(ctx, left, docs, right, dangle=False):
-    sep = concat([COMMA, LINE])
-    separated_els = intersperse(sep, docs)
+    docs = list(docs)
+
+    # Performance optimization:
+    # in case of really long sequences,
+    # the layout algorithm can be quite slow.
+    # No branching here is needed if the sequence
+    # is long enough that even with the shortest
+    # element output, it does not fit the ribbon width.
+    minimum_output_len = (
+        2 +  # Assume left and right are one character each
+        len(', ') * (len(docs) - 1) +
+        len(docs)  # each element must take at least one character
+    )
+
+    MAX_PRACTICAL_RIBBON_WIDTH = 150
+
+    will_break = minimum_output_len > MAX_PRACTICAL_RIBBON_WIDTH
+
+    has_comment = any(is_commented(doc) for doc in docs)
+
+    parts = []
+    for idx, doc in enumerate(docs):
+        last = idx == len(docs) - 1
+
+        if is_commented(doc):
+            comment_str = doc.annotation.value
+            # Try to fit the comment at the end of the same line.
+            flat_version = concat([
+                doc,
+                COMMA if not last else NIL,
+                '  ',
+                commentdoc(comment_str),
+                LINE if not last else NIL
+            ])
+
+            # If the value is broken to multiple lines, add
+            # comment on the line above.
+            broken_version = concat([
+                commentdoc(comment_str),
+                LINE,
+                doc,
+                COMMA if not last else NIL,
+                LINE if not last else NIL
+            ])
+            parts.append(
+                group(
+                    flat_choice(
+                        when_flat=flat_version,
+                        when_broken=broken_version,
+                    )
+                )
+            )
+        else:
+            parts.append(doc)
+            if not last:
+                parts.append(
+                    concat([COMMA, LINE])
+                )
 
     if dangle:
-        separated_els = chain(separated_els, [COMMA])
+        parts.append(COMMA)
 
-    return group(bracket(ctx, left, concat(separated_els), right))
+    outer = (
+        always_break
+        if will_break or has_comment
+        else group
+    )
+
+    return outer(bracket(ctx, left, concat(parts), right))
 
 
 def prettycall(ctx, fn, *args, **kwargs):
@@ -302,7 +512,8 @@ def prettycall(ctx, fn, *args, **kwargs):
 
     if not kwargs and len(args) == 1:
         sole_arg = args[0]
-        if type(sole_arg) in (list, dict, tuple):
+        unwrapped_sole_arg, _comment, _trailing_comment = unwrap_comments(args[0])
+        if type(unwrapped_sole_arg) in (list, dict, tuple):
             return build_fncall(
                 ctx,
                 fndoc,
@@ -335,7 +546,8 @@ def build_fncall(
     fndoc,
     argdocs=(),
     kwargdocs=(),
-    hug_sole_arg=False
+    hug_sole_arg=False,
+    trailing_comment=None,
 ):
     """Builds a doc that looks like a function call,
     from docs that represent the function, arguments
@@ -370,21 +582,22 @@ def build_fncall(
     if callable(fndoc):
         fndoc = general_identifier(fndoc)
 
-    argsep = concat([COMMA, LINE])
+    argdocs = list(argdocs)
+    kwargdocs = list(kwargdocs)
 
     kwargdocs = [
-        concat([
-            binding,
-            annotate(
-                Token.OPERATOR,
-                '='
-            ),
-            doc
-        ])
+        # Propagate any comments to the kwarg doc.
+        (
+            annotate_comment(
+                doc.annotation.value,
+                concat([binding, ASSIGN_OP, doc.doc])
+            )
+            if is_commented(doc)
+            else concat([binding, ASSIGN_OP, doc])
+        )
         for binding, doc in kwargdocs
     ]
 
-    argdocs = list(argdocs)
     if not (argdocs or kwargdocs):
         return concat([
             fndoc,
@@ -392,7 +605,12 @@ def build_fncall(
             RPAREN,
         ])
 
-    if hug_sole_arg and not kwargdocs and len(argdocs) == 1:
+    if (
+        hug_sole_arg and
+        not kwargdocs and
+        len(argdocs) == 1 and
+        not is_commented(argdocs[0])
+    ):
         return group(
             concat([
                 fndoc,
@@ -404,6 +622,43 @@ def build_fncall(
 
     allarg_docs = [*argdocs, *kwargdocs]
 
+    if trailing_comment:
+        allarg_docs.append(commentdoc(trailing_comment))
+
+    parts = []
+
+    for idx, doc in enumerate(allarg_docs):
+        last = idx == len(allarg_docs) - 1
+
+        if is_commented(doc):
+            comment_str = doc.annotation.value
+            doc = doc.doc
+        else:
+            comment_str = None
+
+        part = concat([doc, NIL if last else COMMA])
+
+        if comment_str:
+            part = group(
+                flat_choice(
+                    when_flat=concat([
+                        part,
+                        '  ',
+                        commentdoc(comment_str)
+                    ]),
+                    when_broken=concat([
+                        commentdoc(comment_str),
+                        HARDLINE,
+                        part,
+                    ]),
+                )
+            )
+
+        if not last:
+            part = concat([part, LINE])
+
+        parts.append(part)
+
     return group(
         concat([
             fndoc,
@@ -412,12 +667,7 @@ def build_fncall(
                 ctx.indent,
                 concat([
                     SOFTLINE,
-                    concat(
-                        intersperse(
-                            argsep,
-                            allarg_docs
-                        )
-                    ),
+                    concat(parts),
                 ])
             ),
             SOFTLINE,
@@ -429,7 +679,7 @@ def build_fncall(
 @register_pretty(tuple)
 @register_pretty(list)
 @register_pretty(set)
-def pretty_bracketable_iterable(value, ctx):
+def pretty_bracketable_iterable(value, ctx, trailing_comment=None):
     dangle = False
 
     if isinstance(value, list):
@@ -476,6 +726,10 @@ def pretty_bracketable_iterable(value, ctx):
             for el in value
         )
 
+    if trailing_comment:
+        els = chain(els, [commentdoc(trailing_comment)])
+        dangle = False
+
     return sequence_of_docs(ctx, left, els, right, dangle=dangle)
 
 
@@ -506,6 +760,7 @@ class _AlwaysSortable(object):
 def pretty_dict(d, ctx):
     if ctx.depth_left == 0:
         return concat([LBRACE, ELLIPSIS, RBRACE])
+
     pairs = []
     for k in sorted(d.keys(), key=_AlwaysSortable):
         v = d[k]
@@ -530,25 +785,101 @@ def pretty_dict(d, ctx):
                 .use_multiline_strategy(MULTILINE_STATEGY_INDENTED)
             ),
         )
-        pairs.append((kdoc, vdoc))
 
-    pairsep = concat([COMMA, LINE])
+        kcomment = None
+        if is_commented(kdoc):
+            kcomment = kdoc.annotation.value
+            kdoc = kdoc.doc
 
-    pairdocs = (
-        group(
-            concat([
+        vcomment = None
+        if is_commented(vdoc):
+            vcomment = vdoc.annotation.value
+            vdoc = vdoc.doc
+
+        pairs.append((k, v, kdoc, vdoc, kcomment, vcomment))
+
+    parts = []
+    for idx, tup in enumerate(pairs):
+        last = idx == len(pairs) - 1
+
+        k, v, kdoc, vdoc, kcomment, vcomment = tup
+
+        if not (kcomment or vcomment):
+            parts.append(
+                concat([
+                    kdoc,
+                    concat([COLON, ' ']),
+                    vdoc,
+                    NIL if last else COMMA,
+                    NIL if last else LINE,
+                ]),
+            )
+            continue
+
+        if kcomment:
+            kcommented = concat([
+                commentdoc(kcomment),
+                HARDLINE,
                 kdoc,
+            ])
+        else:
+            kcommented = kdoc
+
+        if vcomment:
+            vcommented = flat_choice(
+                # Add comment at the end of the line
+                when_flat=concat([
+                    vdoc,
+                    NIL if last else COMMA,
+                    '  ',
+                    commentdoc(vcomment),
+                    NIL if last else LINE,
+                ]),
+
+                # Put comment above the value
+                # on its own line
+                when_broken=concat([
+                    nest(
+                        ctx.indent,
+                        concat([
+                            HARDLINE,
+                            commentdoc(vcomment),
+                            HARDLINE,
+                            # Rerender vdoc with plain multiline strategy,
+                            # since we already have an indentation.
+                            pretty_python_value(
+                                v,
+                                ctx=(
+                                    ctx
+                                    .nested_call()
+                                    .use_multiline_strategy(MULTILINE_STATEGY_PLAIN)
+                                ),
+                            ),
+                            COMMA if not last else NIL,
+                            LINE if not last else NIL
+                        ])
+                    ),
+                ])
+            )
+        else:
+            vcommented = concat([
+                vdoc,
+                COMMA if not last else NIL,
+                LINE if not last else NIL
+            ])
+
+        parts.append(
+            concat([
+                kcommented,
                 concat([COLON, ' ']),
-                vdoc
-            ]),
+                vcommented
+            ])
         )
-        for kdoc, vdoc in pairs
-    )
 
     doc = bracket(
         ctx,
         LBRACE,
-        concat(intersperse(pairsep, pairdocs)),
+        concat(parts),
         RBRACE,
     )
 
@@ -697,13 +1028,6 @@ def split_at(idx, sequence):
 
 def escaped_len(s, use_quote):
     return len(escape_str_for_quote(use_quote, s))
-
-
-WHITESPACE_PATTERN_TEXT = re.compile(r'(\s+)')
-WHITESPACE_PATTERN_BYTES = re.compile(rb'(\s+)')
-
-NONWORD_PATTERN_TEXT = re.compile(r'(\W+)')
-NONWORD_PATTERN_BYTES = re.compile(rb'(\W+)')
 
 
 def str_to_lines(max_len, use_quote, s):
@@ -976,18 +1300,21 @@ def pretty_pytz_timezone(tz, ctx):
 
 
 def pretty_pytz_dst_timezone(tz, ctx):
-    if pytz.timezone(tz.zone) == tz:
+    if tz.zone and pytz.timezone(tz.zone) == tz:
         return pretty_pytz_timezone(tz, ctx)
 
-    # timezone can't be represented with a
-    # pytz.timezone(zonename) call.
-    # TODO: output comments that have
-    # the zone name.
-    return prettycall(
+    calldoc = prettycall(
         ctx,
         pytz.tzinfo.DstTzInfo,
         (tz._utcoffset, tz._dst, tz._tzname)
     )
+
+    if tz.zone:
+        return annotate_comment(
+            f'In timezone {tz.zone}',
+            calldoc
+        )
+    return calldoc
 
 
 if _PYTZ_INSTALLED:
@@ -1120,6 +1447,13 @@ def python_to_sdocs(value, indent, width, depth, ribbon_width=71):
         value,
         ctx=PrettyContext(indent=indent, depth_left=depth, visited=set())
     )
+
+    if is_commented(doc):
+        doc = concat([
+            commentdoc(doc.annotation.value),
+            HARDLINE,
+            doc
+        ])
 
     ribbon_frac = min(1.0, ribbon_width / width)
 

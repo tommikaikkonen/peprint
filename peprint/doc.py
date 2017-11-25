@@ -7,7 +7,8 @@ def normalize_doc(doc):
 
 
 class Doc:
-    """The base class for all Docs, except for plain ``str`` s.
+    """The base class for all Docs, except for plain ``str`` s which
+    are unboxed.
 
     A Doc is a tree structure that represents the set of all possible
     layouts of the contents. The layout algorithm processes the tree,
