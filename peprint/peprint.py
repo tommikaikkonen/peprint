@@ -280,7 +280,13 @@ def _run_pretty(pretty_fn, value, ctx, trailing_comment=None):
     return doc
 
 
+_PREDICATE_REGISTRY = []
+
+
 def _repr_pretty(value, ctx):
+    for predicate, fn in _PREDICATE_REGISTRY:
+        if predicate(value):
+            return fn(value, ctx)
     return repr(value)
 
 
@@ -313,10 +319,28 @@ def pretty_python_value(value, ctx):
     return doc
 
 
-def register_pretty(type):
+def register_pretty(type=None, predicate=None):
     """Returns a decorator that registers the decorated function
     as the pretty printer for instances of ``type``.
     """
+
+    if type is None and predicate is None:
+        raise ValueError(
+            "You must provide either the 'type' or 'predicate' argument."
+        )
+
+    if type is not None and predicate is not None:
+        raise ValueError(
+            "You must provide either the 'type' or 'predicate' argument,"
+            "but not both"
+        )
+
+    if predicate is not None:
+        if not callable(predicate):
+            raise ValueError(
+                f"Expected a callable for 'predicate', got {repr(predicate)}"
+            )
+
     def decorator(fn):
         sig = inspect.signature(fn)
 
@@ -333,7 +357,11 @@ def register_pretty(type):
                 f"The function signature for {fnname} was not compatible."
             )
 
-        pretty_dispatch.register(type, partial(_run_pretty, fn))
+        if type:
+            pretty_dispatch.register(type, partial(_run_pretty, fn))
+        else:
+            assert callable(predicate)
+            _PREDICATE_REGISTRY.append((predicate, fn))
         return fn
     return decorator
 
