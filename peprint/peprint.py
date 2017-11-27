@@ -482,17 +482,17 @@ def sequence_of_docs(ctx, left, docs, right, dangle=False):
                 COMMA if not last else NIL,
                 '  ',
                 commentdoc(comment_str),
-                LINE if not last else NIL
+                HARDLINE if not last else NIL
             ])
 
             # If the value is broken to multiple lines, add
             # comment on the line above.
             broken_version = concat([
                 commentdoc(comment_str),
-                LINE,
+                HARDLINE,
                 doc,
                 COMMA if not last else NIL,
-                LINE if not last else NIL
+                HARDLINE if not last else NIL
             ])
             parts.append(
                 group(
@@ -624,9 +624,16 @@ def build_fncall(
             4,
             5,
         ])
+
+    If ``trailing_comment`` is provided, the text is
+    rendered as a comment after the last argument and
+    before the closing parenthesis. This will force
+    the function call to be broken to multiple lines.
     """
     if callable(fndoc):
         fndoc = general_identifier(fndoc)
+
+    has_comment = bool(trailing_comment)
 
     argdocs = list(argdocs)
     kwargdocs = list(kwargdocs)
@@ -677,6 +684,7 @@ def build_fncall(
         last = idx == len(allarg_docs) - 1
 
         if is_commented(doc):
+            has_comment = True
             comment_str = doc.annotation.value
             doc = doc.doc
         else:
@@ -701,11 +709,17 @@ def build_fncall(
             )
 
         if not last:
-            part = concat([part, LINE])
+            part = concat([part, HARDLINE if has_comment else LINE])
 
         parts.append(part)
 
-    return group(
+    outer = (
+        always_break
+        if has_comment
+        else group
+    )
+
+    return outer(
         concat([
             fndoc,
             LPAREN,
@@ -807,6 +821,8 @@ def pretty_dict(d, ctx):
     if ctx.depth_left == 0:
         return concat([LBRACE, ELLIPSIS, RBRACE])
 
+    has_comment = False
+
     pairs = []
     for k in sorted(d.keys(), key=_AlwaysSortable):
         v = d[k]
@@ -834,11 +850,13 @@ def pretty_dict(d, ctx):
 
         kcomment = None
         if is_commented(kdoc):
+            has_comment = True
             kcomment = kdoc.annotation.value
             kdoc = kdoc.doc
 
         vcomment = None
         if is_commented(vdoc):
+            has_comment = True
             vcomment = vdoc.annotation.value
             vdoc = vdoc.doc
 
@@ -872,40 +890,42 @@ def pretty_dict(d, ctx):
             kcommented = kdoc
 
         if vcomment:
-            vcommented = flat_choice(
-                # Add comment at the end of the line
-                when_flat=concat([
-                    vdoc,
-                    NIL if last else COMMA,
-                    '  ',
-                    commentdoc(vcomment),
-                    NIL if last else LINE,
-                ]),
+            vcommented = group(
+                flat_choice(
+                    # Add comment at the end of the line
+                    when_flat=concat([
+                        vdoc,
+                        NIL if last else COMMA,
+                        '  ',
+                        commentdoc(vcomment),
+                        NIL if last else HARDLINE,
+                    ]),
 
-                # Put comment above the value
-                # on its own line
-                when_broken=concat([
-                    nest(
-                        ctx.indent,
-                        concat([
-                            HARDLINE,
-                            commentdoc(vcomment),
-                            HARDLINE,
-                            # Rerender vdoc with plain multiline strategy,
-                            # since we already have an indentation.
-                            pretty_python_value(
-                                v,
-                                ctx=(
-                                    ctx
-                                    .nested_call()
-                                    .use_multiline_strategy(MULTILINE_STATEGY_PLAIN)
+                    # Put comment above the value
+                    # on its own line
+                    when_broken=concat([
+                        nest(
+                            ctx.indent,
+                            concat([
+                                HARDLINE,
+                                commentdoc(vcomment),
+                                HARDLINE,
+                                # Rerender vdoc with plain multiline strategy,
+                                # since we already have an indentation.
+                                pretty_python_value(
+                                    v,
+                                    ctx=(
+                                        ctx
+                                        .nested_call()
+                                        .use_multiline_strategy(MULTILINE_STATEGY_PLAIN)
+                                    ),
                                 ),
-                            ),
-                            COMMA if not last else NIL,
-                            LINE if not last else NIL
-                        ])
-                    ),
-                ])
+                                COMMA if not last else NIL,
+                                HARDLINE if not last else NIL
+                            ])
+                        ),
+                    ])
+                )
             )
         else:
             vcommented = concat([
@@ -929,7 +949,7 @@ def pretty_dict(d, ctx):
         RBRACE,
     )
 
-    if len(pairs) > 2:
+    if len(pairs) > 2 or has_comment:
         doc = always_break(doc)
     else:
         doc = group(doc)
@@ -1040,6 +1060,46 @@ def escape_str_for_quote(use_quote, s):
         )
 
 
+STR_LITERAL_ESCAPES = re.compile(
+    r'''((?:\\[\\abfnrtv"'])|'''
+    r'(?:\\N\{.*?\})|'
+    r'(?:\\u[a-fA-F0-9]{4})|'
+    r'(?:\\U[a-fA-F0-9]{8})|'
+    r'(?:\\x[a-fA-F0-9]{2})|'
+    r'(?:\\[0-7]{1,3}))'
+)
+
+
+def highlight_escapes(s):
+    if not s:
+        return NIL
+
+    matches = STR_LITERAL_ESCAPES.split(s)
+
+    starts_with_match = bool(STR_LITERAL_ESCAPES.match(matches[0]))
+
+    docs = []
+    for part, is_escaped in zip(
+        matches,
+        cycle([starts_with_match, not starts_with_match])
+    ):
+        if not part:
+            continue
+
+        docs.append(
+            annotate(
+                (
+                    Token.STRING_ESCAPE
+                    if is_escaped
+                    else Token.LITERAL_STRING
+                ),
+                part
+            )
+        )
+
+    return concat(docs)
+
+
 def pretty_single_line_str(s, indent, use_quote=None):
     prefix = (
         annotate(Token.STRING_AFFIX, 'b')
@@ -1050,13 +1110,16 @@ def pretty_single_line_str(s, indent, use_quote=None):
     if use_quote is None:
         use_quote = determine_quote_strategy(s)
 
+    escaped = escape_str_for_quote(use_quote, s)
+    escapes_highlighted = highlight_escapes(escaped)
+
     return concat([
         prefix,
         annotate(
             Token.LITERAL_STRING,
             concat([
                 use_quote,
-                escape_str_for_quote(use_quote, s),
+                escapes_highlighted,
                 use_quote
             ])
         )
@@ -1263,11 +1326,20 @@ def python_to_sdocs(value, indent, width, depth, ribbon_width=71):
     )
 
     if is_commented(doc):
-        doc = concat([
-            commentdoc(doc.annotation.value),
-            HARDLINE,
-            doc
-        ])
+        doc = group(
+            flat_choice(
+                when_flat=concat([
+                    doc,
+                    '  ',
+                    commentdoc(doc.annotation.value),
+                ]),
+                when_broken=concat([
+                    commentdoc(doc.annotation.value),
+                    HARDLINE,
+                    doc
+                ])
+            )
+        )
 
     ribbon_frac = min(1.0, ribbon_width / width)
 

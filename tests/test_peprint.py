@@ -30,6 +30,10 @@ from peprint import (
     intersperse,
     fill,
 )
+from peprint.peprint import (
+    comment,
+    trailing_comment,
+)
 from peprint.render import default_render_to_str
 from peprint.layout import layout_smart
 
@@ -320,17 +324,3 @@ def test_datetime():
 @given(nested_dictionaries())
 def test_nested_structures(value):
     pprint(value)
-
-
-def test_comments():
-    cpprint(datetime.time(
-        hour=21,
-        minute=49,
-        second=19,
-        microsecond=32150,
-        tzinfo=pytz.tzinfo.DstTzInfo((
-            -datetime.timedelta(hours=2),
-            datetime.timedelta(),
-            '-02'
-        ))
-    ))
