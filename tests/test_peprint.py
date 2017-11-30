@@ -140,6 +140,30 @@ def test_recursive():
     assert rendered == f"{{'self_recursion': <Recursion on dict with id={id(d)}>}}"
 
 
+def possibly_commented(strategy):
+    @st.composite
+    def _strategy(draw):
+        value = draw(strategy)
+
+        add_trailing_comment = False
+        if isinstance(value, (list, tuple, set)):
+            add_trailing_comment = draw(st.booleans())
+
+        add_comment = draw(st.booleans())
+
+        if add_trailing_comment:
+            comment_text = draw(st.text(alphabet='abcdefghijklmnopqrstuvwxyz #\\\'"'))
+            value = trailing_comment(comment_text, value)
+
+        if add_comment:
+            comment_text = draw(st.text(alphabet='abcdefghijklmnopqrstuvwxyz #\\\'"'))
+            value = comment(comment_text, value)
+
+        return value
+
+    return _strategy()
+
+
 def primitives():
     return (
         st.integers() |
@@ -205,7 +229,7 @@ def containers(primitives):
     return st.recursive(primitives, extend)
 
 
-@given(containers(primitives()))
+@given(possibly_commented(containers(possibly_commented(primitives()))))
 def test_all_python_values(value):
     cpprint(value)
 
@@ -324,3 +348,19 @@ def test_datetime():
 @given(nested_dictionaries())
 def test_nested_structures(value):
     pprint(value)
+
+
+def test_large_data_performance():
+    data = [
+        {
+            'text': 'lorem ipsum dolor sit amet ' * 500
+        }
+    ] * 200
+    start = datetime.datetime.now()
+    pformat(data)
+    end = datetime.datetime.now()
+    took = end - start
+    # The bottleneck is in string to doc conversion,
+    # specifically escaping strings many times.
+    # There's probably more we can do here
+    assert took < datetime.timedelta(seconds=10)

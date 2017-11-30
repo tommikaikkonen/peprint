@@ -424,10 +424,12 @@ def commentdoc(text):
             if is_ws:
                 alternating_words_ws[idx] = flat_choice(
                     when_flat=part,
-                    when_broken=concat([
-                        HARDLINE,
-                        '# ',
-                    ])
+                    when_broken=always_break(
+                        concat([
+                            HARDLINE,
+                            '# ',
+                        ])
+                    )
                 )
 
         commentlines.append(
@@ -1166,23 +1168,23 @@ def str_to_lines(max_len, use_quote, s):
 
     remaining_stack = list(reversed(tagged_alternating))
     curr_line_parts = []
+    curr_line_len = 0
     while remaining_stack:
         curr, is_whitespace = remaining_stack.pop()
         curr_line_parts.append(curr)
-        curr_line_len = sum(
-            escaped_len(part, use_quote)
-            for part in curr_line_parts
-        )
+        curr_line_len += escaped_len(curr, use_quote)
 
         if curr_line_len == max_len:
             if not is_whitespace and len(curr_line_parts) > 2:
                 curr_line_parts.pop()
                 yield empty.join(curr_line_parts)
                 curr_line_parts = []
+                curr_line_len = 0
                 remaining_stack.append((curr, is_whitespace))
             else:
                 yield empty.join(curr_line_parts)
                 curr_line_parts = []
+                curr_line_len = 0
                 continue
         elif curr_line_len > max_len:
             if not is_whitespace and len(curr_line_parts) > 1:
@@ -1190,6 +1192,7 @@ def str_to_lines(max_len, use_quote, s):
                 yield empty.join(curr_line_parts)
                 remaining_stack.append((curr, is_whitespace))
                 curr_line_parts = []
+                curr_line_len = 0
                 continue
 
             curr_line_parts.pop()
@@ -1201,6 +1204,7 @@ def str_to_lines(max_len, use_quote, s):
 
             yield empty.join(curr_line_parts)
             curr_line_parts = []
+            curr_line_len = 0
 
             if next_line_part:
                 remaining_stack.append((next_line_part, is_whitespace))
